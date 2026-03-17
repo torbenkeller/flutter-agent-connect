@@ -28,30 +28,29 @@ func NewRouter(mgr *session.Manager, pool *device.Pool) *http.ServeMux {
 	mux.HandleFunc("GET /sessions/{id}", h.GetSession)
 	mux.HandleFunc("DELETE /sessions/{id}", h.DeleteSession)
 
-	// App lifecycle
-	mux.HandleFunc("POST /sessions/{id}/app/start", h.AppStart)
-	mux.HandleFunc("POST /sessions/{id}/app/reload", h.AppReload)
-	mux.HandleFunc("POST /sessions/{id}/app/restart", h.AppRestart)
-	mux.HandleFunc("POST /sessions/{id}/app/stop", h.AppStop)
+	// Flutter lifecycle
+	mux.HandleFunc("POST /sessions/{id}/flutter/run", h.FlutterRun)
+	mux.HandleFunc("POST /sessions/{id}/flutter/stop", h.FlutterStop)
+	mux.HandleFunc("POST /sessions/{id}/flutter/hot-reload", h.FlutterHotReload)
+	mux.HandleFunc("POST /sessions/{id}/flutter/hot-restart", h.FlutterHotRestart)
+	mux.HandleFunc("POST /sessions/{id}/flutter/clean", h.FlutterClean)
+	mux.HandleFunc("POST /sessions/{id}/flutter/pub-get", h.FlutterPubGet)
+	mux.HandleFunc("GET /flutter/version", h.FlutterVersion)
 
-	// Screenshots & UI
-	mux.HandleFunc("GET /sessions/{id}/screenshot", h.Screenshot)
-	mux.HandleFunc("POST /sessions/{id}/tap", h.Tap)
-	mux.HandleFunc("POST /sessions/{id}/swipe", h.Swipe)
-	mux.HandleFunc("POST /sessions/{id}/type", h.TypeText)
+	// Device interaction
+	mux.HandleFunc("GET /sessions/{id}/device/screenshot", h.DeviceScreenshot)
+	mux.HandleFunc("POST /sessions/{id}/device/tap", h.DeviceTap)
+	mux.HandleFunc("POST /sessions/{id}/device/swipe", h.DeviceSwipe)
+	mux.HandleFunc("POST /sessions/{id}/device/type", h.DeviceType)
 
-	// Inspection
-	mux.HandleFunc("GET /sessions/{id}/inspect/widgets", h.InspectWidgets)
-	mux.HandleFunc("GET /sessions/{id}/inspect/render", h.InspectRender)
-	mux.HandleFunc("GET /sessions/{id}/inspect/semantics", h.InspectSemantics)
-
-	// Debugging
-	mux.HandleFunc("POST /sessions/{id}/debug/paint", h.DebugPaint)
-	mux.HandleFunc("POST /sessions/{id}/debug/repaint", h.DebugRepaint)
-	mux.HandleFunc("POST /sessions/{id}/debug/performance", h.DebugPerformance)
-
-	// Logs
-	mux.HandleFunc("GET /sessions/{id}/logs", h.GetLogs)
+	// DevTools inspection & debugging
+	mux.HandleFunc("GET /sessions/{id}/devtools/widgets", h.DevtoolsWidgets)
+	mux.HandleFunc("GET /sessions/{id}/devtools/render", h.DevtoolsRender)
+	mux.HandleFunc("GET /sessions/{id}/devtools/semantics", h.DevtoolsSemantics)
+	mux.HandleFunc("POST /sessions/{id}/devtools/performance", h.DevtoolsPerformance)
+	mux.HandleFunc("POST /sessions/{id}/devtools/paint", h.DevtoolsPaint)
+	mux.HandleFunc("POST /sessions/{id}/devtools/repaint", h.DevtoolsRepaint)
+	mux.HandleFunc("GET /sessions/{id}/devtools/logs", h.DevtoolsLogs)
 
 	return mux
 }

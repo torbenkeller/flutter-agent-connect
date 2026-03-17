@@ -19,9 +19,9 @@ Server mode (on the Mac):
 Client mode (in the DevContainer):
   fac connect
   fac session create --platform ios
-  fac app start
-  fac reload
-  fac screenshot`,
+  fac flutter run
+  fac flutter hot-reload
+  fac device screenshot`,
 }
 
 func Execute() {

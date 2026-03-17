@@ -168,17 +168,17 @@ fac session create --platform android --name android
 
 # iOS testen
 fac session use ios
-fac app start
-fac screenshot -o ios-home.png
+fac flutter run
+fac device screenshot -o ios-home.png
 
 # Zu Android wechseln
 fac session use android
-fac app start
-fac screenshot -o android-home.png
+fac flutter run
+fac device screenshot -o android-home.png
 
 # Oder explizit ohne Wechsel
-fac screenshot --session ios -o ios.png
-fac screenshot --session android -o android.png
+fac device screenshot --session ios -o ios.png
+fac device screenshot --session android -o android.png
 ```
 
 ## Error Cases

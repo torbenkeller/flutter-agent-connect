@@ -1,7 +1,9 @@
 package session
 
 import (
+	"encoding/json"
 	"fmt"
+	"os/exec"
 	"sync"
 	"time"
 
@@ -349,4 +351,85 @@ func (m *Manager) DestroyAll() {
 	for _, item := range toDestroy {
 		_ = m.DestroySession(item.agent, item.id)
 	}
+}
+
+// CommandResult holds the output of a flutter CLI command.
+type CommandResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+// FlutterClean runs `flutter clean` in the session's work directory.
+func (m *Manager) FlutterClean(agentID, sessionID string) (*CommandResult, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	if s.WorkDir == "" {
+		return nil, &models.ErrValidation{Message: "No work directory set. Pass --work-dir when creating the session"}
+	}
+
+	log.Info().Str("session", sessionID).Str("workDir", s.WorkDir).Msg("Running flutter clean")
+
+	cmd := exec.Command(m.flutterSDK, "clean")
+	cmd.Dir = s.WorkDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("flutter clean failed: %s: %w", string(output), err)
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: "flutter clean completed",
+	}, nil
+}
+
+// FlutterPubGet runs `flutter pub get` in the session's work directory.
+func (m *Manager) FlutterPubGet(agentID, sessionID string) (*CommandResult, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	if s.WorkDir == "" {
+		return nil, &models.ErrValidation{Message: "No work directory set. Pass --work-dir when creating the session"}
+	}
+
+	log.Info().Str("session", sessionID).Str("workDir", s.WorkDir).Msg("Running flutter pub get")
+
+	cmd := exec.Command(m.flutterSDK, "pub", "get")
+	cmd.Dir = s.WorkDir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("flutter pub get failed: %s: %w", string(output), err)
+	}
+
+	return &CommandResult{
+		Success: true,
+		Message: "flutter pub get completed",
+	}, nil
+}
+
+// FlutterVersion runs `flutter --version --machine` and returns the parsed JSON.
+func (m *Manager) FlutterVersion() (any, error) {
+	cmd := exec.Command(m.flutterSDK, "--version", "--machine")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("flutter --version failed: %w", err)
+	}
+
+	var version any
+	if err := json.Unmarshal(output, &version); err != nil {
+		// If it's not JSON, return as string
+		return map[string]string{"version": string(output)}, nil
+	}
+
+	return version, nil
 }

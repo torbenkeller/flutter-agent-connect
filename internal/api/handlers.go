@@ -115,7 +115,9 @@ func (h *Handlers) DeleteSession(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Session destroyed"})
 }
 
-func (h *Handlers) AppStart(w http.ResponseWriter, r *http.Request) {
+// Flutter lifecycle handlers
+
+func (h *Handlers) FlutterRun(w http.ResponseWriter, r *http.Request) {
 	agentID := r.Header.Get("X-Agent-ID")
 	id := r.PathValue("id")
 
@@ -136,7 +138,19 @@ func (h *Handlers) AppStart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, result)
 }
 
-func (h *Handlers) AppReload(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) FlutterStop(w http.ResponseWriter, r *http.Request) {
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	if err := h.sessions.StopApp(agentID, id); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]string{"message": "App stopped"})
+}
+
+func (h *Handlers) FlutterHotReload(w http.ResponseWriter, r *http.Request) {
 	agentID := r.Header.Get("X-Agent-ID")
 	id := r.PathValue("id")
 
@@ -150,7 +164,7 @@ func (h *Handlers) AppReload(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handlers) AppRestart(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) FlutterHotRestart(w http.ResponseWriter, r *http.Request) {
 	agentID := r.Header.Get("X-Agent-ID")
 	id := r.PathValue("id")
 
@@ -164,18 +178,45 @@ func (h *Handlers) AppRestart(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *Handlers) AppStop(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) FlutterClean(w http.ResponseWriter, r *http.Request) {
 	agentID := r.Header.Get("X-Agent-ID")
 	id := r.PathValue("id")
 
-	if err := h.sessions.StopApp(agentID, id); err != nil {
+	result, err := h.sessions.FlutterClean(agentID, id)
+	if err != nil {
 		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{"message": "App stopped"})
+	writeJSON(w, http.StatusOK, result)
 }
-func (h *Handlers) Screenshot(w http.ResponseWriter, r *http.Request) {
+
+func (h *Handlers) FlutterPubGet(w http.ResponseWriter, r *http.Request) {
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	result, err := h.sessions.FlutterPubGet(agentID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
+}
+
+func (h *Handlers) FlutterVersion(w http.ResponseWriter, r *http.Request) {
+	version, err := h.sessions.FlutterVersion()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, version)
+}
+
+// Device interaction handlers
+
+func (h *Handlers) DeviceScreenshot(w http.ResponseWriter, r *http.Request) {
 	agentID := r.Header.Get("X-Agent-ID")
 	id := r.PathValue("id")
 
@@ -189,27 +230,37 @@ func (h *Handlers) Screenshot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write(data)
 }
-func (h *Handlers) Tap(w http.ResponseWriter, r *http.Request)        { writeError(w, http.StatusNotImplemented, "not_implemented", "TODO") }
-func (h *Handlers) Swipe(w http.ResponseWriter, r *http.Request)      { writeError(w, http.StatusNotImplemented, "not_implemented", "TODO") }
-func (h *Handlers) TypeText(w http.ResponseWriter, r *http.Request)   { writeError(w, http.StatusNotImplemented, "not_implemented", "TODO") }
-func (h *Handlers) InspectWidgets(w http.ResponseWriter, r *http.Request) {
+
+func (h *Handlers) DeviceTap(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
-func (h *Handlers) InspectRender(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) DeviceSwipe(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
-func (h *Handlers) InspectSemantics(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) DeviceType(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
-func (h *Handlers) DebugPaint(w http.ResponseWriter, r *http.Request) {
+
+// DevTools inspection & debugging handlers
+
+func (h *Handlers) DevtoolsWidgets(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
-func (h *Handlers) DebugRepaint(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) DevtoolsRender(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
-func (h *Handlers) DebugPerformance(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) DevtoolsSemantics(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
-func (h *Handlers) GetLogs(w http.ResponseWriter, r *http.Request) {
+func (h *Handlers) DevtoolsPerformance(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+}
+func (h *Handlers) DevtoolsPaint(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+}
+func (h *Handlers) DevtoolsRepaint(w http.ResponseWriter, r *http.Request) {
+	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+}
+func (h *Handlers) DevtoolsLogs(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }

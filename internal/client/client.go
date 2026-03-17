@@ -215,35 +215,44 @@ func (c *Client) DestroySession(idOrName string) error {
 	return nil
 }
 
-// App operations
+// Flutter operations
 
-func (c *Client) AppStart(session, target string) error {
+type FlutterRunResult struct {
+	AppID        string `json:"app_id"`
+	State        string `json:"state"`
+	DeviceID     string `json:"device_id,omitempty"`
+	VMServiceURI string `json:"vm_service_uri,omitempty"`
+}
+
+func (c *Client) FlutterRun(session, target string) (*FlutterRunResult, error) {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
-		return fmt.Errorf("no active session")
+		return nil, fmt.Errorf("no active session")
 	}
 
 	body, _ := json.Marshal(map[string]string{"target": target})
-	resp, err := c.post("/sessions/"+sessionID+"/app/start", bytes.NewReader(body))
+	resp, err := c.post("/sessions/"+sessionID+"/flutter/run", bytes.NewReader(body))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return readError(resp)
+		return nil, readError(resp)
 	}
 
-	return nil
+	var result FlutterRunResult
+	json.NewDecoder(resp.Body).Decode(&result)
+	return &result, nil
 }
 
-func (c *Client) AppStop(session string) error {
+func (c *Client) FlutterStop(session string) error {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
 		return fmt.Errorf("no active session")
 	}
 
-	resp, err := c.post("/sessions/"+sessionID+"/app/stop", nil)
+	resp, err := c.post("/sessions/"+sessionID+"/flutter/stop", nil)
 	if err != nil {
 		return err
 	}
@@ -261,13 +270,13 @@ type ReloadResult struct {
 	Message    string `json:"message,omitempty"`
 }
 
-func (c *Client) Reload(session string) (*ReloadResult, error) {
+func (c *Client) FlutterHotReload(session string) (*ReloadResult, error) {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
 		return nil, fmt.Errorf("no active session")
 	}
 
-	resp, err := c.post("/sessions/"+sessionID+"/app/reload", nil)
+	resp, err := c.post("/sessions/"+sessionID+"/flutter/hot-reload", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -282,13 +291,13 @@ func (c *Client) Reload(session string) (*ReloadResult, error) {
 	return &result, nil
 }
 
-func (c *Client) Restart(session string) (*ReloadResult, error) {
+func (c *Client) FlutterHotRestart(session string) (*ReloadResult, error) {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
 		return nil, fmt.Errorf("no active session")
 	}
 
-	resp, err := c.post("/sessions/"+sessionID+"/app/restart", nil)
+	resp, err := c.post("/sessions/"+sessionID+"/flutter/hot-restart", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -302,13 +311,82 @@ func (c *Client) Restart(session string) (*ReloadResult, error) {
 	json.NewDecoder(resp.Body).Decode(&result)
 	return &result, nil
 }
-func (c *Client) Screenshot(session string, deviceLevel bool) ([]byte, error) {
+
+type CommandResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+}
+
+func (c *Client) FlutterClean(session string) (*CommandResult, error) {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
 		return nil, fmt.Errorf("no active session")
 	}
 
-	resp, err := c.get("/sessions/" + sessionID + "/screenshot")
+	resp, err := c.post("/sessions/"+sessionID+"/flutter/clean", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readError(resp)
+	}
+
+	var result CommandResult
+	json.NewDecoder(resp.Body).Decode(&result)
+	return &result, nil
+}
+
+func (c *Client) FlutterPubGet(session string) (*CommandResult, error) {
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	resp, err := c.post("/sessions/"+sessionID+"/flutter/pub-get", nil)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readError(resp)
+	}
+
+	var result CommandResult
+	json.NewDecoder(resp.Body).Decode(&result)
+	return &result, nil
+}
+
+func (c *Client) FlutterVersion() (string, error) {
+	resp, err := c.get("/flutter/version")
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", readError(resp)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(data), nil
+}
+
+// Device operations
+
+func (c *Client) DeviceScreenshot(session string, deviceLevel bool) ([]byte, error) {
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	resp, err := c.get("/sessions/" + sessionID + "/device/screenshot")
 	if err != nil {
 		return nil, err
 	}
@@ -327,17 +405,31 @@ type TapResult struct {
 	Y int `json:"y"`
 }
 
-func (c *Client) TapByLabel(session, label string, index int) (*TapResult, error) { return nil, fmt.Errorf("not implemented") }
-func (c *Client) TapByKey(session, key string, index int) (*TapResult, error)     { return nil, fmt.Errorf("not implemented") }
-func (c *Client) TapAtCoordinates(session string, x, y int) (*TapResult, error)   { return nil, fmt.Errorf("not implemented") }
-func (c *Client) Swipe(session, direction string, durationMs int) error            { return fmt.Errorf("not implemented") }
-func (c *Client) TypeText(session, text string, clear, enter bool) error           { return fmt.Errorf("not implemented") }
+func (c *Client) TapByLabel(session, label string, index int) (*TapResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (c *Client) TapByKey(session, key string, index int) (*TapResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (c *Client) TapAtCoordinates(session string, x, y int) (*TapResult, error) {
+	return nil, fmt.Errorf("not implemented")
+}
+func (c *Client) Swipe(session, direction string, durationMs int) error {
+	return fmt.Errorf("not implemented")
+}
+func (c *Client) TypeText(session, text string, clear, enter bool) error {
+	return fmt.Errorf("not implemented")
+}
 
 // Inspection
-func (c *Client) Inspect(session, treeType string) (any, error) { return nil, fmt.Errorf("not implemented") }
+func (c *Client) Inspect(session, treeType string) (any, error) {
+	return nil, fmt.Errorf("not implemented")
+}
 
 // Debug
-func (c *Client) ToggleDebug(session, flag string) (bool, error) { return false, fmt.Errorf("not implemented") }
+func (c *Client) ToggleDebug(session, flag string) (bool, error) {
+	return false, fmt.Errorf("not implemented")
+}
 
 // Logs
 type LogEntry struct {

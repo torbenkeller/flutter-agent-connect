@@ -57,7 +57,6 @@ Nach `fac connect` wird `~/.fac/config.json` im Container geschrieben:
 $ fac connect --agent feature-login
 Connected to FAC Server v0.1.0
 Agent: feature-login
-Available devices: 12 iOS simulators
 
 # Auto-generated Agent-Name
 $ fac connect
@@ -66,6 +65,9 @@ Agent: agent-7f3a (auto-generated)
 
 # Danach: alle Commands nutzen die gespeicherte Verbindung
 $ fac session create --platform ios --name ios-main
+$ fac flutter run
+$ fac flutter hot-reload
+$ fac device screenshot
 ```
 
 ## Voraussetzung: Volume Mount
