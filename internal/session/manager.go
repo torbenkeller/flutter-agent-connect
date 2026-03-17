@@ -332,7 +332,7 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 		return nil, &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	ios := &interaction.IOSInteraction{}
+	ios := interaction.NewIOSInteraction()
 
 	// Widget-based tap via semantics tree
 	if label != "" || key != "" {
@@ -362,19 +362,22 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 			return nil, fmt.Errorf("element %q has no bounding rect", label+key)
 		}
 
-		x, y = node.Rect.Center()
-		log.Info().Str("label", label+key).Float64("x", x).Float64("y", y).Msg("Found element, tapping")
+		cx, cy := node.Rect.Center()
+		log.Info().Str("label", label+key).Float64("x", cx).Float64("y", cy).Msg("Found element, tapping via idb")
+
+		if err := ios.Tap(s.Device.UDID, int(cx), int(cy)); err != nil {
+			return nil, err
+		}
+
+		return &TapResult{Success: true, X: int(cx), Y: int(cy), Element: label + key}, nil
 	}
 
-	// Default screen size for iPhone (logical pixels)
-	screenWidth := 393.0
-	screenHeight := 852.0
-
-	if err := ios.TapAbsolute(s.Device.UDID, x, y, screenWidth, screenHeight); err != nil {
+	// Direct coordinate tap via idb
+	if err := ios.Tap(s.Device.UDID, int(x), int(y)); err != nil {
 		return nil, err
 	}
 
-	return &TapResult{X: int(x), Y: int(y)}, nil
+	return &TapResult{Success: true, X: int(x), Y: int(y)}, nil
 }
 
 // TapResult represents the result of a tap operation.
@@ -399,7 +402,7 @@ func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool)
 		return &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	ios := &interaction.IOSInteraction{}
+	ios := interaction.NewIOSInteraction()
 	return ios.TypeText(s.Device.UDID, text, clear, enter)
 }
 
@@ -417,8 +420,9 @@ func (m *Manager) DeviceSwipe(agentID, sessionID, direction string, durationMs i
 		return &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	ios := &interaction.IOSInteraction{}
-	return ios.Swipe(s.Device.UDID, direction, durationMs)
+	ios := interaction.NewIOSInteraction()
+	// Default screen size for swipe calculation
+	return ios.Swipe(s.Device.UDID, direction, 402, 874)
 }
 
 // Screenshot takes a screenshot of the session's simulator.
