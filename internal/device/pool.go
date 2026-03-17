@@ -1,95 +1,170 @@
 package device
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/torben/flutter-agent-connect/pkg/models"
 )
 
-// Pool tracks FAC-managed devices.
+// Pool tracks FAC-managed devices across iOS and Android.
 type Pool struct {
 	mu      sync.RWMutex
-	devices map[string]*models.Device // udid -> device
+	devices map[string]*ManagedDevice // udid/avdName -> managed device
 	sim     *IOSSimulator
+	emu     *AndroidEmulator
+}
+
+// ManagedDevice wraps a device model with platform-specific runtime info.
+type ManagedDevice struct {
+	models.Device
+	// Android-specific: the adb serial (e.g., "emulator-5554")
+	ADBSerial string `json:"adb_serial,omitempty"`
 }
 
 func NewPool() *Pool {
 	return &Pool{
-		devices: make(map[string]*models.Device),
+		devices: make(map[string]*ManagedDevice),
 		sim:     &IOSSimulator{},
+		emu:     NewAndroidEmulator(),
 	}
 }
 
-// Discover scans for existing FAC-managed simulators (from previous runs).
+// Discover scans for available simulators/emulators (for info logging).
 func (p *Pool) Discover() (int, error) {
-	// Count all available simulators for info logging
-	all, err := p.sim.ListAll()
-	if err != nil {
-		return 0, err
+	count := 0
+
+	iosDevices, err := p.sim.ListAll()
+	if err == nil {
+		count += len(iosDevices)
 	}
-	return len(all), nil
+
+	if p.emu.IsAvailable() {
+		androidDevices, err := p.emu.ListAll()
+		if err == nil {
+			count += len(androidDevices)
+		}
+	}
+
+	return count, nil
 }
 
-// CreateDevice creates a new simulator for an agent's session.
-func (p *Pool) CreateDevice(agentID, sessionName, deviceType, runtime string) (*models.Device, error) {
-	dev, err := p.sim.Create(agentID, sessionName, deviceType, runtime)
-	if err != nil {
-		return nil, err
+// CreateDevice creates a new device (simulator or emulator) for an agent's session.
+func (p *Pool) CreateDevice(agentID, sessionName string, platform models.PlatformType, deviceType, runtime string) (*ManagedDevice, error) {
+	switch platform {
+	case models.PlatformIOS:
+		dev, err := p.sim.Create(agentID, sessionName, deviceType, runtime)
+		if err != nil {
+			return nil, err
+		}
+		managed := &ManagedDevice{Device: *dev}
+		p.mu.Lock()
+		p.devices[dev.UDID] = managed
+		p.mu.Unlock()
+		return managed, nil
+
+	case models.PlatformAndroid:
+		if !p.emu.IsAvailable() {
+			return nil, fmt.Errorf("Android SDK not found. Set ANDROID_HOME or install Android SDK")
+		}
+		dev, err := p.emu.Create(agentID, sessionName, deviceType, runtime)
+		if err != nil {
+			return nil, err
+		}
+		managed := &ManagedDevice{Device: *dev}
+		p.mu.Lock()
+		p.devices[dev.UDID] = managed
+		p.mu.Unlock()
+		return managed, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported platform: %s", platform)
 	}
-
-	p.mu.Lock()
-	p.devices[dev.UDID] = dev
-	p.mu.Unlock()
-
-	return dev, nil
 }
 
-// BootDevice boots a simulator.
-func (p *Pool) BootDevice(udid string) error {
-	if err := p.sim.Boot(udid); err != nil {
-		return err
-	}
+// BootDevice boots a device (simulator or emulator).
+func (p *Pool) BootDevice(udid string, platform models.PlatformType) (string, error) {
+	switch platform {
+	case models.PlatformIOS:
+		if err := p.sim.Boot(udid); err != nil {
+			return "", err
+		}
+		p.mu.Lock()
+		if dev, ok := p.devices[udid]; ok {
+			dev.State = models.DeviceStateBooted
+		}
+		p.mu.Unlock()
+		return udid, nil
 
-	p.mu.Lock()
-	if dev, ok := p.devices[udid]; ok {
-		dev.State = models.DeviceStateBooted
-	}
-	p.mu.Unlock()
+	case models.PlatformAndroid:
+		serial, err := p.emu.Boot(udid) // udid is the AVD name
+		if err != nil {
+			return "", err
+		}
+		p.mu.Lock()
+		if dev, ok := p.devices[udid]; ok {
+			dev.State = models.DeviceStateBooted
+			dev.ADBSerial = serial
+		}
+		p.mu.Unlock()
+		return serial, nil
 
-	return nil
+	default:
+		return "", fmt.Errorf("unsupported platform: %s", platform)
+	}
 }
 
-// DeleteDevice deletes a simulator permanently.
-func (p *Pool) DeleteDevice(udid string) error {
-	if err := p.sim.Delete(udid); err != nil {
-		return err
+// DeleteDevice deletes a device permanently.
+func (p *Pool) DeleteDevice(udid string, platform models.PlatformType) error {
+	p.mu.RLock()
+	managed, ok := p.devices[udid]
+	p.mu.RUnlock()
+
+	switch platform {
+	case models.PlatformIOS:
+		if err := p.sim.Delete(udid); err != nil {
+			return err
+		}
+	case models.PlatformAndroid:
+		if ok && managed.ADBSerial != "" {
+			p.emu.Shutdown(managed.ADBSerial)
+		}
+		if err := p.emu.Delete(udid); err != nil {
+			return err
+		}
 	}
 
 	p.mu.Lock()
 	delete(p.devices, udid)
 	p.mu.Unlock()
-
 	return nil
 }
 
-// ListForAgent returns devices belonging to a specific agent.
-func (p *Pool) ListForAgent(agentID string) ([]models.Device, error) {
-	return p.sim.ListForAgent(agentID)
+// GetManaged returns the managed device for a UDID.
+func (p *Pool) GetManaged(udid string) *ManagedDevice {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.devices[udid]
 }
 
-// List returns all known FAC-managed devices (for the /devices endpoint).
+// List returns all known FAC-managed devices.
 func (p *Pool) List() []models.Device {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	result := make([]models.Device, 0, len(p.devices))
 	for _, d := range p.devices {
-		result = append(result, *d)
+		result = append(result, d.Device)
 	}
 	return result
 }
 
-// Simulator returns the underlying iOS simulator for direct access.
+// Simulator returns the iOS simulator manager.
 func (p *Pool) Simulator() *IOSSimulator {
 	return p.sim
+}
+
+// Emulator returns the Android emulator manager.
+func (p *Pool) Emulator() *AndroidEmulator {
+	return p.emu
 }

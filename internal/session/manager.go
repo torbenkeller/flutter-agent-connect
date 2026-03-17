@@ -29,6 +29,7 @@ type Session struct {
 	models.Session
 	flutterProcess  *flutter.RunProcess
 	vmServiceClient *flutter.VMServiceClient
+	flutterDeviceID string // UDID for iOS, adb serial for Android
 }
 
 func NewManager(pool *device.Pool, flutterSDK string) *Manager {
@@ -77,25 +78,27 @@ func (m *Manager) CreateSession(agentID string, platform models.PlatformType, de
 	}
 	m.mu.RUnlock()
 
-	// Create a new simulator specifically for this session
+	// Create a new device (simulator or emulator)
 	log.Info().
 		Str("agent", agentID).
 		Str("session", simName).
+		Str("platform", string(platform)).
 		Str("device", deviceType).
-		Msg("Creating simulator")
+		Msg("Creating device")
 
-	dev, err := m.pool.CreateDevice(agentID, simName, deviceType, "")
+	managed, err := m.pool.CreateDevice(agentID, simName, platform, deviceType, "")
 	if err != nil {
-		return nil, fmt.Errorf("failed to create simulator: %w", err)
+		return nil, fmt.Errorf("failed to create device: %w", err)
 	}
 
-	// Boot the simulator
-	log.Info().Str("udid", dev.UDID).Str("name", dev.Name).Msg("Booting simulator")
-	if err := m.pool.BootDevice(dev.UDID); err != nil {
-		m.pool.DeleteDevice(dev.UDID)
-		return nil, fmt.Errorf("failed to boot simulator: %w", err)
+	// Boot the device
+	log.Info().Str("udid", managed.UDID).Str("name", managed.Name).Msg("Booting device")
+	flutterDeviceID, err := m.pool.BootDevice(managed.UDID, platform)
+	if err != nil {
+		m.pool.DeleteDevice(managed.UDID, platform)
+		return nil, fmt.Errorf("failed to boot device: %w", err)
 	}
-	dev.State = models.DeviceStateBooted
+	managed.State = models.DeviceStateBooted
 
 	session := &Session{
 		Session: models.Session{
@@ -104,10 +107,11 @@ func (m *Manager) CreateSession(agentID string, platform models.PlatformType, de
 			Name:      name,
 			Platform:  platform,
 			State:     models.SessionStateCreated,
-			Device:    dev,
+			Device:    &managed.Device,
 			WorkDir:   workDir,
 			CreatedAt: time.Now(),
 		},
+		flutterDeviceID: flutterDeviceID,
 	}
 
 	m.mu.Lock()
@@ -183,12 +187,13 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 
 	log.Info().
 		Str("session", sessionID).
-		Str("device", s.Device.UDID).
+		Str("device", s.flutterDeviceID).
+		Str("platform", string(s.Platform)).
 		Str("workDir", s.WorkDir).
 		Str("target", target).
 		Msg("Starting Flutter app")
 
-	proc, err := flutter.Start(m.flutterSDK, s.WorkDir, s.Device.UDID, target)
+	proc, err := flutter.Start(m.flutterSDK, s.WorkDir, s.flutterDeviceID, target)
 	if err != nil {
 		m.mu.Lock()
 		s.State = models.SessionStateStopped
@@ -290,9 +295,18 @@ func (m *Manager) StopApp(agentID, sessionID string) error {
 }
 
 // getVMServiceClient returns or lazily creates a VM Service client for the session.
+// Reconnects if the old connection is stale (e.g., after hot restart).
 func (m *Manager) getVMServiceClient(s *Session) (*flutter.VMServiceClient, error) {
 	if s.vmServiceClient != nil {
-		return s.vmServiceClient, nil
+		// Test if still working with a quick ping
+		_, err := s.vmServiceClient.CallExtension("ext.flutter.platformOverride", nil)
+		if err == nil {
+			return s.vmServiceClient, nil
+		}
+		// Connection stale, reconnect
+		log.Info().Msg("VM Service connection stale, reconnecting")
+		s.vmServiceClient.Close()
+		s.vmServiceClient = nil
 	}
 
 	if s.flutterProcess == nil || !s.flutterProcess.IsRunning() {
@@ -308,6 +322,14 @@ func (m *Manager) getVMServiceClient(s *Session) (*flutter.VMServiceClient, erro
 	client, err := flutter.ConnectVMService(wsURI)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to VM Service: %w", err)
+	}
+
+	// Set ADB serial for Android (needed for EnsureSemantics)
+	if s.Platform == models.PlatformAndroid {
+		managed := m.pool.GetManaged(s.Device.UDID)
+		if managed != nil {
+			client.ADBSerial = managed.ADBSerial
+		}
 	}
 
 	m.mu.Lock()
@@ -331,8 +353,6 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 	if s.Device == nil {
 		return nil, &models.ErrValidation{Message: "No device assigned to session"}
 	}
-
-	ios := interaction.NewIOSInteraction()
 
 	// Widget-based tap via semantics tree
 	if label != "" || key != "" {
@@ -363,17 +383,40 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 		}
 
 		cx, cy := node.Rect.Center()
-		log.Info().Str("label", label+key).Float64("x", cx).Float64("y", cy).Msg("Found element, tapping via idb")
 
-		if err := ios.Tap(s.Device.UDID, int(cx), int(cy)); err != nil {
+		// On Android, semantics coordinates are in logical pixels (dp).
+		// adb shell input tap expects physical pixels.
+		// Multiply by device pixel ratio = physical_width / logical_width.
+		if s.Platform == models.PlatformAndroid {
+			// Get physical screen size
+			w, _, devErr := m.pool.Emulator().GetDeviceInfo(s.flutterDeviceID)
+			if devErr == nil && w > 0 {
+				// Get logical screen size from semantics tree root children
+				logicalW := 411.4 // sensible default
+				for _, child := range tree.Children {
+					if child.Rect != nil && child.Rect.Right > 100 && child.Rect.Right < float64(w) {
+						logicalW = child.Rect.Right
+						break
+					}
+				}
+				scale := float64(w) / logicalW
+				log.Debug().Float64("scale", scale).Int("physicalW", w).Float64("logicalW", logicalW).Msg("Android coordinate scaling")
+				cx *= scale
+				cy *= scale
+			}
+		}
+
+		log.Info().Str("label", label+key).Float64("x", cx).Float64("y", cy).Str("platform", string(s.Platform)).Msg("Found element, tapping")
+
+		if err := m.platformTap(s, int(cx), int(cy)); err != nil {
 			return nil, err
 		}
 
 		return &TapResult{Success: true, X: int(cx), Y: int(cy), Element: label + key}, nil
 	}
 
-	// Direct coordinate tap via idb
-	if err := ios.Tap(s.Device.UDID, int(x), int(y)); err != nil {
+	// Direct coordinate tap
+	if err := m.platformTap(s, int(x), int(y)); err != nil {
 		return nil, err
 	}
 
@@ -388,7 +431,23 @@ type TapResult struct {
 	Element  string `json:"element,omitempty"`
 }
 
-// DeviceType types text into the simulator.
+// platformTap sends a tap to the appropriate platform.
+func (m *Manager) platformTap(s *Session, x, y int) error {
+	switch s.Platform {
+	case models.PlatformAndroid:
+		managed := m.pool.GetManaged(s.Device.UDID)
+		if managed == nil || managed.ADBSerial == "" {
+			return &models.ErrConflict{Message: "Android emulator not running"}
+		}
+		android := interaction.NewAndroidInteraction()
+		return android.Tap(managed.ADBSerial, x, y)
+	default:
+		ios := interaction.NewIOSInteraction()
+		return ios.Tap(s.Device.UDID, x, y)
+	}
+}
+
+// DeviceType types text into the simulator/emulator.
 func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool) error {
 	m.mu.RLock()
 	s, ok := m.sessions[sessionID]
@@ -402,11 +461,21 @@ func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool)
 		return &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	ios := interaction.NewIOSInteraction()
-	return ios.TypeText(s.Device.UDID, text, clear, enter)
+	switch s.Platform {
+	case models.PlatformAndroid:
+		managed := m.pool.GetManaged(s.Device.UDID)
+		if managed == nil || managed.ADBSerial == "" {
+			return &models.ErrConflict{Message: "Android emulator not running"}
+		}
+		android := interaction.NewAndroidInteraction()
+		return android.TypeText(managed.ADBSerial, text, clear, enter)
+	default:
+		ios := interaction.NewIOSInteraction()
+		return ios.TypeText(s.Device.UDID, text, clear, enter)
+	}
 }
 
-// DeviceSwipe sends a swipe gesture to the simulator.
+// DeviceSwipe sends a swipe gesture to the simulator/emulator.
 func (m *Manager) DeviceSwipe(agentID, sessionID, direction string, durationMs int) error {
 	m.mu.RLock()
 	s, ok := m.sessions[sessionID]
@@ -420,9 +489,18 @@ func (m *Manager) DeviceSwipe(agentID, sessionID, direction string, durationMs i
 		return &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	ios := interaction.NewIOSInteraction()
-	// Default screen size for swipe calculation
-	return ios.Swipe(s.Device.UDID, direction, 402, 874)
+	switch s.Platform {
+	case models.PlatformAndroid:
+		managed := m.pool.GetManaged(s.Device.UDID)
+		if managed == nil || managed.ADBSerial == "" {
+			return &models.ErrConflict{Message: "Android emulator not running"}
+		}
+		android := interaction.NewAndroidInteraction()
+		return android.Swipe(managed.ADBSerial, direction, 1080, 2400, durationMs)
+	default:
+		ios := interaction.NewIOSInteraction()
+		return ios.Swipe(s.Device.UDID, direction, 402, 874)
+	}
 }
 
 // Screenshot takes a screenshot of the session's simulator.
@@ -439,7 +517,16 @@ func (m *Manager) Screenshot(agentID, sessionID string) ([]byte, error) {
 		return nil, &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	return m.pool.Simulator().Screenshot(s.Device.UDID)
+	switch s.Platform {
+	case models.PlatformAndroid:
+		managed := m.pool.GetManaged(s.Device.UDID)
+		if managed == nil || managed.ADBSerial == "" {
+			return nil, &models.ErrConflict{Message: "Android emulator not running"}
+		}
+		return m.pool.Emulator().Screenshot(managed.ADBSerial)
+	default:
+		return m.pool.Simulator().Screenshot(s.Device.UDID)
+	}
 }
 
 // DestroySession stops the app, deletes the simulator, and cleans up.
@@ -460,11 +547,11 @@ func (m *Manager) DestroySession(agentID, sessionID string) error {
 		}
 	}
 
-	// Delete the simulator (not just shutdown)
+	// Delete the device (simulator or emulator)
 	if s.Device != nil {
-		log.Info().Str("udid", s.Device.UDID).Str("name", s.Device.Name).Msg("Deleting simulator")
-		if err := m.pool.DeleteDevice(s.Device.UDID); err != nil {
-			log.Warn().Err(err).Msg("Failed to delete simulator")
+		log.Info().Str("udid", s.Device.UDID).Str("name", s.Device.Name).Msg("Deleting device")
+		if err := m.pool.DeleteDevice(s.Device.UDID, s.Platform); err != nil {
+			log.Warn().Err(err).Msg("Failed to delete device")
 		}
 	}
 

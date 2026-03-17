@@ -3,6 +3,10 @@ package flutter
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -17,6 +21,7 @@ type VMServiceClient struct {
 	mu        sync.Mutex
 	nextID    atomic.Int64
 	isolateID string
+	ADBSerial string // set for Android emulators
 }
 
 // ConnectVMService connects to the Dart VM Service WebSocket.
@@ -159,9 +164,48 @@ func (c *VMServiceClient) CallExtension(method string, args map[string]any) (jso
 	return c.call(method, params, 30*time.Second)
 }
 
+// EnsureSemantics forces semantics tree generation (needed on Android where
+// semantics are disabled by default for performance).
+// adbSerial is optional — if provided, enables accessibility via adb as fallback.
+func (c *VMServiceClient) EnsureSemantics(adbSerial string) {
+	// Method 1: Toggle semantics debugger (works on iOS)
+	c.CallExtension("ext.flutter.showSemanticsDebugger", map[string]any{"enabled": "true"})
+	time.Sleep(500 * time.Millisecond)
+	c.CallExtension("ext.flutter.showSemanticsDebugger", map[string]any{"enabled": "false"})
+	time.Sleep(500 * time.Millisecond)
+
+	// Method 2: On Android, enable accessibility via adb (more reliable)
+	if adbSerial != "" {
+		adbPath, _ := exec.LookPath("adb")
+		if adbPath == "" {
+			home, _ := os.UserHomeDir()
+			adbPath = filepath.Join(home, "Library", "Android", "sdk", "platform-tools", "adb")
+		}
+		// Enable TalkBack to force semantics generation
+		exec.Command(adbPath, "-s", adbSerial, "shell",
+			"settings", "put", "secure", "enabled_accessibility_services",
+			"com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService").Run()
+		time.Sleep(2 * time.Second)
+		// Disable TalkBack again (we just needed it to trigger semantics)
+		exec.Command(adbPath, "-s", adbSerial, "shell",
+			"settings", "put", "secure", "enabled_accessibility_services", "").Run()
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // GetSemanticsTree returns the semantics tree of the running app.
 func (c *VMServiceClient) GetSemanticsTree() (*SemanticsNode, error) {
 	result, err := c.CallExtension("ext.flutter.debugDumpSemanticsTreeInTraversalOrder", nil)
+
+	// If semantics not generated, enable them and retry
+	if err == nil {
+		var check struct{ Data string `json:"data"` }
+		json.Unmarshal(result, &check)
+		if strings.Contains(check.Data, "Semantics not generated") {
+			c.EnsureSemantics(c.ADBSerial)
+			result, err = c.CallExtension("ext.flutter.debugDumpSemanticsTreeInTraversalOrder", nil)
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
