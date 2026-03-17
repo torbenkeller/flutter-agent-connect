@@ -203,19 +203,6 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 	// Wait for app to start
 	select {
 	case <-proc.Started:
-		// Connect to VM Service for devtools/inspection
-		wsURI := proc.VMServiceURI()
-		if wsURI != "" {
-			vmClient, err := flutter.ConnectVMService(wsURI)
-			if err != nil {
-				log.Warn().Err(err).Msg("Failed to connect to VM Service (devtools will be unavailable)")
-			} else {
-				m.mu.Lock()
-				s.vmServiceClient = vmClient
-				m.mu.Unlock()
-			}
-		}
-
 		m.mu.Lock()
 		s.State = models.SessionStateRunning
 		m.mu.Unlock()
@@ -223,7 +210,7 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 		return &AppStartResult{
 			AppID:        proc.AppID(),
 			State:        "running",
-			VMServiceURI: wsURI,
+			VMServiceURI: proc.VMServiceURI(),
 		}, nil
 
 	case <-proc.Stopped:
@@ -302,6 +289,34 @@ func (m *Manager) StopApp(agentID, sessionID string) error {
 	return nil
 }
 
+// getVMServiceClient returns or lazily creates a VM Service client for the session.
+func (m *Manager) getVMServiceClient(s *Session) (*flutter.VMServiceClient, error) {
+	if s.vmServiceClient != nil {
+		return s.vmServiceClient, nil
+	}
+
+	if s.flutterProcess == nil || !s.flutterProcess.IsRunning() {
+		return nil, &models.ErrConflict{Message: "No running app. Use 'fac flutter run' first"}
+	}
+
+	wsURI := s.flutterProcess.VMServiceURI()
+	if wsURI == "" {
+		return nil, &models.ErrConflict{Message: "VM Service URI not available"}
+	}
+
+	log.Info().Str("wsUri", wsURI).Msg("Connecting to VM Service (lazy)")
+	client, err := flutter.ConnectVMService(wsURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to VM Service: %w", err)
+	}
+
+	m.mu.Lock()
+	s.vmServiceClient = client
+	m.mu.Unlock()
+
+	return client, nil
+}
+
 // DeviceTap sends a tap event to the simulator.
 // Supports tapping by label (via semantics tree), key, or raw coordinates.
 func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y float64, index int) (*TapResult, error) {
@@ -321,11 +336,12 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 
 	// Widget-based tap via semantics tree
 	if label != "" || key != "" {
-		if s.vmServiceClient == nil {
-			return nil, &models.ErrConflict{Message: "VM Service not connected. Is the app running?"}
+		vmClient, err := m.getVMServiceClient(s)
+		if err != nil {
+			return nil, err
 		}
 
-		tree, err := s.vmServiceClient.GetSemanticsTree()
+		tree, err := vmClient.GetSemanticsTree()
 		if err != nil {
 			return nil, fmt.Errorf("failed to get semantics tree: %w", err)
 		}

@@ -16,120 +16,109 @@ type VMServiceClient struct {
 	conn      *websocket.Conn
 	mu        sync.Mutex
 	nextID    atomic.Int64
-	pending   map[int64]chan json.RawMessage
-	pendingMu sync.Mutex
 	isolateID string
-}
-
-// jsonRPCRequest is a JSON-RPC 2.0 request.
-type jsonRPCRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	ID      int64  `json:"id"`
-	Method  string `json:"method"`
-	Params  any    `json:"params,omitempty"`
-}
-
-// jsonRPCResponse is a JSON-RPC 2.0 response.
-type jsonRPCResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	ID      int64           `json:"id"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   json.RawMessage `json:"error,omitempty"`
 }
 
 // ConnectVMService connects to the Dart VM Service WebSocket.
 func ConnectVMService(wsURI string) (*VMServiceClient, error) {
-	conn, _, err := websocket.DefaultDialer.Dial(wsURI, nil)
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, _, err := dialer.Dial(wsURI, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to VM Service at %s: %w", wsURI, err)
 	}
 
-	client := &VMServiceClient{
-		conn:    conn,
-		pending: make(map[int64]chan json.RawMessage),
+	client := &VMServiceClient{conn: conn}
+
+	// Discover the main isolate (retry — isolate may not be ready yet)
+	var discoverErr error
+	for i := 0; i < 5; i++ {
+		if err := client.discoverIsolate(); err == nil {
+			discoverErr = nil
+			break
+		} else {
+			discoverErr = err
+			time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
+		}
 	}
-
-	// Read responses in background
-	go client.readLoop()
-
-	// Discover the main isolate
-	if err := client.discoverIsolate(); err != nil {
+	if discoverErr != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to discover isolate: %w", err)
+		return nil, fmt.Errorf("failed to discover isolate: %w", discoverErr)
 	}
 
 	log.Info().Str("isolate", client.isolateID).Msg("VM Service connected")
 	return client, nil
 }
 
-// readLoop reads WebSocket messages and dispatches responses.
-func (c *VMServiceClient) readLoop() {
-	for {
-		_, message, err := c.conn.ReadMessage()
-		if err != nil {
-			log.Debug().Err(err).Msg("VM Service WebSocket read error")
-			return
-		}
-
-		var resp jsonRPCResponse
-		if err := json.Unmarshal(message, &resp); err != nil {
-			continue
-		}
-
-		if resp.ID != 0 {
-			c.pendingMu.Lock()
-			ch, ok := c.pending[resp.ID]
-			if ok {
-				delete(c.pending, resp.ID)
-			}
-			c.pendingMu.Unlock()
-
-			if ok {
-				if resp.Error != nil {
-					ch <- resp.Error
-				} else {
-					ch <- resp.Result
-				}
-			}
-		}
-	}
-}
-
-// call sends a JSON-RPC request and waits for the response.
+// call sends a JSON-RPC request and reads the response synchronously.
 func (c *VMServiceClient) call(method string, params map[string]any, timeout time.Duration) (json.RawMessage, error) {
-	id := c.nextID.Add(1)
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	ch := make(chan json.RawMessage, 1)
-	c.pendingMu.Lock()
-	c.pending[id] = ch
-	c.pendingMu.Unlock()
+	idNum := c.nextID.Add(1)
+	id := fmt.Sprintf("%d", idNum)
 
-	req := jsonRPCRequest{
-		JSONRPC: "2.0",
-		ID:      id,
-		Method:  method,
-		Params:  params,
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+	}
+	if params != nil {
+		req["params"] = params
 	}
 
-	c.mu.Lock()
-	err := c.conn.WriteJSON(req)
-	c.mu.Unlock()
-
-	if err != nil {
-		c.pendingMu.Lock()
-		delete(c.pending, id)
-		c.pendingMu.Unlock()
+	if err := c.conn.WriteJSON(req); err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 
-	select {
-	case result := <-ch:
-		return result, nil
-	case <-time.After(timeout):
-		c.pendingMu.Lock()
-		delete(c.pending, id)
-		c.pendingMu.Unlock()
-		return nil, fmt.Errorf("timeout waiting for response to %s", method)
+	// Read messages until we get our response
+	c.conn.SetReadDeadline(time.Now().Add(timeout))
+	defer c.conn.SetReadDeadline(time.Time{})
+
+	for {
+		_, message, err := c.conn.ReadMessage()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read response: %w", err)
+		}
+
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(message, &raw); err != nil {
+			continue
+		}
+
+		// Check if this message has our ID
+		idRaw, hasID := raw["id"]
+		if !hasID {
+			continue // stream notification, skip
+		}
+
+		var respID string
+		if err := json.Unmarshal(idRaw, &respID); err != nil {
+			// Try as number
+			var idNum int64
+			if err2 := json.Unmarshal(idRaw, &idNum); err2 == nil {
+				respID = fmt.Sprintf("%d", idNum)
+			} else {
+				continue
+			}
+		}
+
+		if respID != id {
+			continue // not our response
+		}
+
+		// Found our response
+		if errRaw, hasErr := raw["error"]; hasErr {
+			return nil, fmt.Errorf("VM Service error: %s", string(errRaw))
+		}
+
+		if resultRaw, hasResult := raw["result"]; hasResult {
+			return resultRaw, nil
+		}
+
+		return nil, fmt.Errorf("response has no result or error")
 	}
 }
 
@@ -154,7 +143,6 @@ func (c *VMServiceClient) discoverIsolate() error {
 		return fmt.Errorf("no isolates found")
 	}
 
-	// Use the first isolate (usually the main one)
 	c.isolateID = vm.Isolates[0].ID
 	return nil
 }
@@ -173,29 +161,16 @@ func (c *VMServiceClient) CallExtension(method string, args map[string]any) (jso
 
 // GetSemanticsTree returns the semantics tree of the running app.
 func (c *VMServiceClient) GetSemanticsTree() (*SemanticsNode, error) {
-	return c.getStructuredSemantics()
-}
-
-// getStructuredSemantics gets the semantics tree in a structured format.
-func (c *VMServiceClient) getStructuredSemantics() (*SemanticsNode, error) {
-	// First, ensure semantics are enabled
-	c.CallExtension("ext.flutter.debugDumpSemanticsTreeInTraversalOrder", nil)
-
-	// Get the root semantics node via the inspector
-	result, err := c.CallExtension("ext.flutter.debugDumpSemanticsTreeInTraversalOrder", map[string]any{
-		"inverseClip": "true",
-	})
+	result, err := c.CallExtension("ext.flutter.debugDumpSemanticsTreeInTraversalOrder", nil)
 	if err != nil {
 		return nil, err
 	}
 
-	// The result is a formatted string - parse it into our structure
 	var rawResult struct {
 		Type  string `json:"type"`
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &rawResult); err != nil {
-		// Try parsing as direct string
 		var str string
 		if err2 := json.Unmarshal(result, &str); err2 != nil {
 			return nil, fmt.Errorf("unexpected semantics response: %s", string(result))
@@ -217,10 +192,6 @@ func (c *VMServiceClient) GetWidgetTree() (string, error) {
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		var str string
-		if err2 := json.Unmarshal(result, &str); err2 == nil {
-			return str, nil
-		}
 		return string(result), nil
 	}
 	return resp.Value, nil
@@ -237,10 +208,6 @@ func (c *VMServiceClient) GetRenderTree() (string, error) {
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		var str string
-		if err2 := json.Unmarshal(result, &str); err2 == nil {
-			return str, nil
-		}
 		return string(result), nil
 	}
 	return resp.Value, nil
@@ -248,7 +215,6 @@ func (c *VMServiceClient) GetRenderTree() (string, error) {
 
 // ToggleDebugFlag toggles a debug flag and returns the new state.
 func (c *VMServiceClient) ToggleDebugFlag(extension string) (bool, error) {
-	// These extensions toggle on each call
 	result, err := c.CallExtension(extension, nil)
 	if err != nil {
 		return false, err
@@ -258,7 +224,6 @@ func (c *VMServiceClient) ToggleDebugFlag(extension string) (bool, error) {
 		Enabled bool `json:"enabled"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		// Some extensions return differently
 		return true, nil
 	}
 	return resp.Enabled, nil
@@ -281,7 +246,6 @@ type SemanticsNode struct {
 	Children []*SemanticsNode `json:"children,omitempty"`
 }
 
-// Rect represents a bounding rectangle.
 type Rect struct {
 	Left   float64 `json:"left"`
 	Top    float64 `json:"top"`
@@ -289,16 +253,13 @@ type Rect struct {
 	Bottom float64 `json:"bottom"`
 }
 
-// Center returns the center point of the rect.
 func (r *Rect) Center() (float64, float64) {
 	return (r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2
 }
 
-// FindByLabel searches the semantics tree for a node with the given label.
 func (n *SemanticsNode) FindByLabel(label string, index int) *SemanticsNode {
 	var matches []*SemanticsNode
 	n.findByLabel(label, &matches)
-
 	if index < len(matches) {
 		return matches[index]
 	}
@@ -314,11 +275,9 @@ func (n *SemanticsNode) findByLabel(label string, matches *[]*SemanticsNode) {
 	}
 }
 
-// FindByKey searches for a node whose value/label contains the key identifier.
 func (n *SemanticsNode) FindByKey(key string, index int) *SemanticsNode {
 	var matches []*SemanticsNode
 	n.findByKey(key, &matches)
-
 	if index < len(matches) {
 		return matches[index]
 	}
@@ -334,7 +293,6 @@ func (n *SemanticsNode) findByKey(key string, matches *[]*SemanticsNode) {
 	}
 }
 
-// AllLabels returns all labels in the tree (for error messages).
 func (n *SemanticsNode) AllLabels() []string {
 	var labels []string
 	n.collectLabels(&labels)
@@ -351,8 +309,17 @@ func (n *SemanticsNode) collectLabels(labels *[]string) {
 }
 
 func containsIgnoreCase(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 &&
-		contains(toLower(s), toLower(substr))
+	if len(s) == 0 || len(substr) == 0 {
+		return false
+	}
+	sl := toLower(s)
+	sl2 := toLower(substr)
+	for i := 0; i <= len(sl)-len(sl2); i++ {
+		if sl[i:i+len(sl2)] == sl2 {
+			return true
+		}
+	}
+	return false
 }
 
 func toLower(s string) string {
@@ -368,17 +335,7 @@ func toLower(s string) string {
 	return string(b)
 }
 
-func contains(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
-}
-
 // parseSemanticsText is a placeholder that creates a basic tree from the debug dump.
-// TODO: implement proper parsing of the Flutter semantics debug dump format.
 func parseSemanticsText(text string) *SemanticsNode {
 	return &SemanticsNode{
 		ID:    0,
