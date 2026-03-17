@@ -166,8 +166,10 @@ func (c *VMServiceClient) GetSemanticsTree() (*SemanticsNode, error) {
 		return nil, err
 	}
 
+	// The response has {"data": "...", "type": "_extensionType"}
+	// Try "data" field first, then "value"
 	var rawResult struct {
-		Type  string `json:"type"`
+		Data  string `json:"data"`
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &rawResult); err != nil {
@@ -178,7 +180,16 @@ func (c *VMServiceClient) GetSemanticsTree() (*SemanticsNode, error) {
 		return parseSemanticsText(str), nil
 	}
 
-	return parseSemanticsText(rawResult.Value), nil
+	text := rawResult.Data
+	if text == "" {
+		text = rawResult.Value
+	}
+	if text == "" {
+		return nil, fmt.Errorf("empty semantics tree response: %s", string(result)[:min(200, len(result))])
+	}
+
+	log.Debug().Int("len", len(text)).Msg("Parsing semantics tree")
+	return parseSemanticsText(text), nil
 }
 
 // GetWidgetTree returns the widget tree dump.
@@ -335,11 +346,11 @@ func toLower(s string) string {
 	return string(b)
 }
 
-// parseSemanticsText is a placeholder that creates a basic tree from the debug dump.
-func parseSemanticsText(text string) *SemanticsNode {
-	return &SemanticsNode{
-		ID:    0,
-		Label: "root",
-		Value: text,
+func min(a, b int) int {
+	if a < b {
+		return a
 	}
+	return b
 }
+
+// parseSemanticsText is in semantics_parser.go
