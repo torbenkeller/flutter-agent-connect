@@ -11,6 +11,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/torben/flutter-agent-connect/internal/device"
 	"github.com/torben/flutter-agent-connect/internal/flutter"
+	"github.com/torben/flutter-agent-connect/internal/interaction"
 	"github.com/torben/flutter-agent-connect/pkg/models"
 )
 
@@ -26,7 +27,8 @@ type Manager struct {
 // Session wraps the model with runtime state.
 type Session struct {
 	models.Session
-	flutterProcess *flutter.RunProcess
+	flutterProcess  *flutter.RunProcess
+	vmServiceClient *flutter.VMServiceClient
 }
 
 func NewManager(pool *device.Pool, flutterSDK string) *Manager {
@@ -201,6 +203,19 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 	// Wait for app to start
 	select {
 	case <-proc.Started:
+		// Connect to VM Service for devtools/inspection
+		wsURI := proc.VMServiceURI()
+		if wsURI != "" {
+			vmClient, err := flutter.ConnectVMService(wsURI)
+			if err != nil {
+				log.Warn().Err(err).Msg("Failed to connect to VM Service (devtools will be unavailable)")
+			} else {
+				m.mu.Lock()
+				s.vmServiceClient = vmClient
+				m.mu.Unlock()
+			}
+		}
+
 		m.mu.Lock()
 		s.State = models.SessionStateRunning
 		m.mu.Unlock()
@@ -208,7 +223,7 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 		return &AppStartResult{
 			AppID:        proc.AppID(),
 			State:        "running",
-			VMServiceURI: proc.VMServiceURI(),
+			VMServiceURI: wsURI,
 		}, nil
 
 	case <-proc.Stopped:
@@ -285,6 +300,109 @@ func (m *Manager) StopApp(agentID, sessionID string) error {
 	m.mu.Unlock()
 
 	return nil
+}
+
+// DeviceTap sends a tap event to the simulator.
+// Supports tapping by label (via semantics tree), key, or raw coordinates.
+func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y float64, index int) (*TapResult, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	if s.Device == nil {
+		return nil, &models.ErrValidation{Message: "No device assigned to session"}
+	}
+
+	ios := &interaction.IOSInteraction{}
+
+	// Widget-based tap via semantics tree
+	if label != "" || key != "" {
+		if s.vmServiceClient == nil {
+			return nil, &models.ErrConflict{Message: "VM Service not connected. Is the app running?"}
+		}
+
+		tree, err := s.vmServiceClient.GetSemanticsTree()
+		if err != nil {
+			return nil, fmt.Errorf("failed to get semantics tree: %w", err)
+		}
+
+		var node *flutter.SemanticsNode
+		if label != "" {
+			node = tree.FindByLabel(label, index)
+		} else {
+			node = tree.FindByKey(key, index)
+		}
+
+		if node == nil {
+			availableLabels := tree.AllLabels()
+			return nil, fmt.Errorf("element not found with label %q. Available: %v", label+key, availableLabels)
+		}
+
+		if node.Rect == nil {
+			return nil, fmt.Errorf("element %q has no bounding rect", label+key)
+		}
+
+		x, y = node.Rect.Center()
+		log.Info().Str("label", label+key).Float64("x", x).Float64("y", y).Msg("Found element, tapping")
+	}
+
+	// Default screen size for iPhone (logical pixels)
+	screenWidth := 393.0
+	screenHeight := 852.0
+
+	if err := ios.TapAbsolute(s.Device.UDID, x, y, screenWidth, screenHeight); err != nil {
+		return nil, err
+	}
+
+	return &TapResult{X: int(x), Y: int(y)}, nil
+}
+
+// TapResult represents the result of a tap operation.
+type TapResult struct {
+	Success  bool   `json:"success"`
+	X        int    `json:"x"`
+	Y        int    `json:"y"`
+	Element  string `json:"element,omitempty"`
+}
+
+// DeviceType types text into the simulator.
+func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool) error {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	if s.Device == nil {
+		return &models.ErrValidation{Message: "No device assigned to session"}
+	}
+
+	ios := &interaction.IOSInteraction{}
+	return ios.TypeText(s.Device.UDID, text, clear, enter)
+}
+
+// DeviceSwipe sends a swipe gesture to the simulator.
+func (m *Manager) DeviceSwipe(agentID, sessionID, direction string, durationMs int) error {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	if s.Device == nil {
+		return &models.ErrValidation{Message: "No device assigned to session"}
+	}
+
+	ios := &interaction.IOSInteraction{}
+	return ios.Swipe(s.Device.UDID, direction, durationMs)
 }
 
 // Screenshot takes a screenshot of the session's simulator.

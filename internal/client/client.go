@@ -400,25 +400,84 @@ func (c *Client) DeviceScreenshot(session string, deviceLevel bool) ([]byte, err
 }
 
 // Interaction
+
 type TapResult struct {
-	X int `json:"x"`
-	Y int `json:"y"`
+	Success bool   `json:"success"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	Element string `json:"element,omitempty"`
 }
 
 func (c *Client) TapByLabel(session, label string, index int) (*TapResult, error) {
-	return nil, fmt.Errorf("not implemented")
+	return c.doTap(session, map[string]any{"label": label, "index": index})
 }
+
 func (c *Client) TapByKey(session, key string, index int) (*TapResult, error) {
-	return nil, fmt.Errorf("not implemented")
+	return c.doTap(session, map[string]any{"key": key, "index": index})
 }
+
 func (c *Client) TapAtCoordinates(session string, x, y int) (*TapResult, error) {
-	return nil, fmt.Errorf("not implemented")
+	return c.doTap(session, map[string]any{"x": x, "y": y})
 }
+
+func (c *Client) doTap(session string, body map[string]any) (*TapResult, error) {
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	data, _ := json.Marshal(body)
+	resp, err := c.post("/sessions/"+sessionID+"/device/tap", bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readError(resp)
+	}
+
+	var result TapResult
+	json.NewDecoder(resp.Body).Decode(&result)
+	return &result, nil
+}
+
 func (c *Client) Swipe(session, direction string, durationMs int) error {
-	return fmt.Errorf("not implemented")
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return fmt.Errorf("no active session")
+	}
+
+	body, _ := json.Marshal(map[string]any{"direction": direction, "duration_ms": durationMs})
+	resp, err := c.post("/sessions/"+sessionID+"/device/swipe", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return readError(resp)
+	}
+	return nil
 }
+
 func (c *Client) TypeText(session, text string, clear, enter bool) error {
-	return fmt.Errorf("not implemented")
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return fmt.Errorf("no active session")
+	}
+
+	body, _ := json.Marshal(map[string]any{"text": text, "clear": clear, "enter": enter})
+	resp, err := c.post("/sessions/"+sessionID+"/device/type", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return readError(resp)
+	}
+	return nil
 }
 
 // Inspection

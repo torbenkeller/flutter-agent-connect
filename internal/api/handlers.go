@@ -232,13 +232,68 @@ func (h *Handlers) DeviceScreenshot(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handlers) DeviceTap(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	var req struct {
+		Label string  `json:"label"`
+		Key   string  `json:"key"`
+		X     float64 `json:"x"`
+		Y     float64 `json:"y"`
+		Index int     `json:"index"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+
+	result, err := h.sessions.DeviceTap(agentID, id, req.Label, req.Key, req.X, req.Y, req.Index)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, result)
 }
+
 func (h *Handlers) DeviceSwipe(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	var req struct {
+		Direction  string `json:"direction"`
+		DurationMs int    `json:"duration_ms"`
+	}
+	json.NewDecoder(r.Body).Decode(&req)
+	if req.DurationMs == 0 {
+		req.DurationMs = 300
+	}
+
+	if err := h.sessions.DeviceSwipe(agentID, id, req.Direction, req.DurationMs); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
 }
+
 func (h *Handlers) DeviceType(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	var req struct {
+		Text  string `json:"text"`
+		Clear bool   `json:"clear"`
+		Enter bool   `json:"enter"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Text == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Missing required field: text")
+		return
+	}
+
+	if err := h.sessions.DeviceType(agentID, id, req.Text, req.Clear, req.Enter); err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "text_entered": req.Text})
 }
 
 // DevTools inspection & debugging handlers
