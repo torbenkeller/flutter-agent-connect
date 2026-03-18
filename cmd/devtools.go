@@ -6,7 +6,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/torben/flutter-agent-connect/internal/client"
+	"github.com/torbenkeller/flutter-agent-connect/internal/client"
 )
 
 var devtoolsCmd = &cobra.Command{

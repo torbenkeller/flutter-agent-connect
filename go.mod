@@ -1,4 +1,4 @@
-module github.com/torben/flutter-agent-connect
+module github.com/torbenkeller/flutter-agent-connect
 
 go 1.26.1
 

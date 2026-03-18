@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/torben/flutter-agent-connect/pkg/models"
+	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
 // Client is the FAC API client.

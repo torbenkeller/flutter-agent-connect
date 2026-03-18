@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/torben/flutter-agent-connect/pkg/models"
+	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
 // Pool tracks FAC-managed devices across iOS and Android.

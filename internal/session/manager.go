@@ -12,10 +12,10 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"github.com/torben/flutter-agent-connect/internal/device"
-	"github.com/torben/flutter-agent-connect/internal/flutter"
-	"github.com/torben/flutter-agent-connect/internal/interaction"
-	"github.com/torben/flutter-agent-connect/pkg/models"
+	"github.com/torbenkeller/flutter-agent-connect/internal/device"
+	"github.com/torbenkeller/flutter-agent-connect/internal/flutter"
+	"github.com/torbenkeller/flutter-agent-connect/internal/interaction"
+	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
 // Manager handles session lifecycle.

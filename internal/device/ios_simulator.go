@@ -6,7 +6,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/torben/flutter-agent-connect/pkg/models"
+	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
 const facPrefix = "fac-"

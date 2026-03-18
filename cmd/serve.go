@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
-	"github.com/torben/flutter-agent-connect/internal/server"
+	"github.com/torbenkeller/flutter-agent-connect/internal/server"
 )
 
 var serveCmd = &cobra.Command{

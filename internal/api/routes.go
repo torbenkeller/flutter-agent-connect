@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	"github.com/torben/flutter-agent-connect/internal/device"
-	"github.com/torben/flutter-agent-connect/internal/session"
+	"github.com/torbenkeller/flutter-agent-connect/internal/device"
+	"github.com/torbenkeller/flutter-agent-connect/internal/session"
 )
 
 func NewRouter(mgr *session.Manager, pool *device.Pool) *http.ServeMux {

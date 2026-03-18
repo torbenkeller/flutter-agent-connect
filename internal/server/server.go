@@ -11,9 +11,9 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-	"github.com/torben/flutter-agent-connect/internal/api"
-	"github.com/torben/flutter-agent-connect/internal/device"
-	"github.com/torben/flutter-agent-connect/internal/session"
+	"github.com/torbenkeller/flutter-agent-connect/internal/api"
+	"github.com/torbenkeller/flutter-agent-connect/internal/device"
+	"github.com/torbenkeller/flutter-agent-connect/internal/session"
 )
 
 type Server struct {

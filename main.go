@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/torben/flutter-agent-connect/cmd"
+	"github.com/torbenkeller/flutter-agent-connect/cmd"
 )
 
 func main() {

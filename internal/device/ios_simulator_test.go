@@ -3,7 +3,7 @@ package device
 import (
 	"testing"
 
-	"github.com/torben/flutter-agent-connect/pkg/models"
+	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
 // Test JSON fixture matching real `xcrun simctl list devices -j` output

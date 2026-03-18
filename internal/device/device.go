@@ -1,6 +1,6 @@
 package device
 
-import "github.com/torben/flutter-agent-connect/pkg/models"
+import "github.com/torbenkeller/flutter-agent-connect/pkg/models"
 
 // Manager defines the interface for device lifecycle management.
 type Manager interface {
