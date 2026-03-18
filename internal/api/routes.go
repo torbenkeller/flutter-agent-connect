@@ -2,12 +2,9 @@ package api
 
 import (
 	"net/http"
-
-	"github.com/torbenkeller/flutter-agent-connect/internal/device"
-	"github.com/torbenkeller/flutter-agent-connect/internal/session"
 )
 
-func NewRouter(mgr *session.Manager, pool *device.Pool) *http.ServeMux {
+func NewRouter(mgr SessionService, pool DeviceLister) *http.ServeMux {
 	h := &Handlers{
 		sessions: mgr,
 		devices:  pool,

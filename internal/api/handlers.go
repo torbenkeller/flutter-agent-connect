@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/torbenkeller/flutter-agent-connect/internal/device"
 	"github.com/torbenkeller/flutter-agent-connect/internal/session"
 	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
 type Handlers struct {
-	sessions *session.Manager
-	devices  *device.Pool
+	sessions SessionService
+	devices  DeviceLister
 }
 
 func (h *Handlers) Health(w http.ResponseWriter, r *http.Request) {
