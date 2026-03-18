@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/torbenkeller/flutter-agent-connect/internal/device"
@@ -569,6 +570,66 @@ func TestDeviceTapLabelNotFound(t *testing.T) {
 	if err == nil {
 		t.Error("should error when label not found")
 	}
+}
+
+func TestDeviceTapErrorMessages(t *testing.T) {
+	pool := newMockDevicePool()
+	pool.devices["test-udid"] = &device.ManagedDevice{
+		Device: models.Device{UDID: "test-udid", Platform: models.PlatformIOS},
+	}
+
+	mockVM := &mockVMService{
+		callExtResult: json.RawMessage(`{}`),
+		semanticsTree: &flutter.SemanticsNode{ID: 0},
+	}
+	mockProc := newMockFlutterProcess()
+
+	setup := func() *Manager {
+		m := newTestManagerWithPool(pool)
+		m.mu.Lock()
+		m.sessions["s1"] = &Session{
+			Session:         models.Session{ID: "s1", AgentID: "a1", Device: &models.Device{UDID: "test-udid"}, Platform: models.PlatformIOS},
+			flutterProcess:  mockProc,
+			vmServiceClient: mockVM,
+		}
+		m.mu.Unlock()
+		return m
+	}
+
+	t.Run("label search says label in error", func(t *testing.T) {
+		m := setup()
+		_, err := m.DeviceTap("a1", "s1", "Login", "", 0, 0, 0)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, `label "Login"`) {
+			t.Errorf("error for label search should mention label, got: %s", errMsg)
+		}
+	})
+
+	t.Run("key search says key in error", func(t *testing.T) {
+		m := setup()
+		_, err := m.DeviceTap("a1", "s1", "", "submitBtn", 0, 0, 0)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, `key "submitBtn"`) {
+			t.Errorf("error for key search should mention key, got: %s", errMsg)
+		}
+	})
+
+	t.Run("error includes index", func(t *testing.T) {
+		m := setup()
+		_, err := m.DeviceTap("a1", "s1", "Login", "", 0, 0, 3)
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "index=3") {
+			t.Errorf("error should include index, got: %s", err.Error())
+		}
+	})
 }
 
 // --- DeviceType Tests ---

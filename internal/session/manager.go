@@ -462,19 +462,23 @@ func (m *Manager) DeviceTap(agentID, sessionID, label, key string, x, y float64,
 		}
 
 		var node *flutter.SemanticsNode
+		searchType := "label"
+		searchValue := label
 		if label != "" {
 			node = tree.FindByLabel(label, index)
 		} else {
+			searchType = "key"
+			searchValue = key
 			node = tree.FindByKey(key, index)
 		}
 
 		if node == nil {
 			availableLabels := tree.AllLabels()
-			return nil, fmt.Errorf("element not found with label %q. Available: %v", label+key, availableLabels)
+			return nil, fmt.Errorf("element not found with %s %q (index=%d). Available labels: %v", searchType, searchValue, index, availableLabels)
 		}
 
 		if node.Rect == nil {
-			return nil, fmt.Errorf("element %q has no bounding rect", label+key)
+			return nil, fmt.Errorf("element with %s %q has no bounding rect", searchType, searchValue)
 		}
 
 		cx, cy := node.Rect.Center()
@@ -501,13 +505,13 @@ func (m *Manager) DeviceTap(agentID, sessionID, label, key string, x, y float64,
 			}
 		}
 
-		log.Info().Str("label", label+key).Float64("x", cx).Float64("y", cy).Str("platform", string(s.Platform)).Msg("Found element, tapping")
+		log.Info().Str(searchType, searchValue).Float64("x", cx).Float64("y", cy).Str("platform", string(s.Platform)).Msg("Found element, tapping")
 
 		if err := m.platformTap(s, int(cx), int(cy)); err != nil {
 			return nil, err
 		}
 
-		return &TapResult{Success: true, X: int(cx), Y: int(cy), Element: label + key}, nil
+		return &TapResult{Success: true, X: int(cx), Y: int(cy), Element: searchValue}, nil
 	}
 
 	// Direct coordinate tap
