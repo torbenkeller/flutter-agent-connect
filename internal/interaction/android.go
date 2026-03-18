@@ -37,16 +37,10 @@ func (a *AndroidInteraction) TypeText(serial, text string, clearField, enter boo
 		_ = a.runADB(serial, "shell", "input", "keyevent", "29", "67") // KEYCODE_A with CTRL, then DEL
 	}
 
-	// adb shell input text has issues with special characters
-	// Escape spaces and special chars
-	escaped := strings.ReplaceAll(text, " ", "%s")
-	escaped = strings.ReplaceAll(escaped, "&", "\\&")
-	escaped = strings.ReplaceAll(escaped, "<", "\\<")
-	escaped = strings.ReplaceAll(escaped, ">", "\\>")
-	escaped = strings.ReplaceAll(escaped, "(", "\\(")
-	escaped = strings.ReplaceAll(escaped, ")", "\\)")
-	escaped = strings.ReplaceAll(escaped, "'", "\\'")
-	escaped = strings.ReplaceAll(escaped, "\"", "\\\"")
+	// adb shell input text runs through the emulator's shell, which
+	// interprets special characters. We must escape them with backslash.
+	// Spaces use the special %s token that adb input text understands.
+	escaped := escapeForADBInput(text)
 
 	if err := a.runADB(serial, "shell", "input", "text", escaped); err != nil {
 		return err
@@ -96,4 +90,27 @@ func (a *AndroidInteraction) runADB(serial string, args ...string) error {
 		return fmt.Errorf("adb %s failed: %s: %w", args[0], strings.TrimSpace(string(output)), err)
 	}
 	return nil
+}
+
+// escapeForADBInput escapes a string for use with `adb shell input text`.
+// The text passes through the emulator's shell, so all shell metacharacters
+// must be escaped. Spaces use the special %s token.
+func escapeForADBInput(text string) string {
+	var b strings.Builder
+	b.Grow(len(text) * 2)
+	for _, c := range text {
+		switch c {
+		case ' ':
+			b.WriteString("%s")
+		case '\\', '"', '\'', '`',
+			'@', '#', '$', '%', '^',
+			'&', '*', '(', ')', '{', '}', '[', ']',
+			'<', '>', '|', '~', '!', '?', ';':
+			b.WriteByte('\\')
+			b.WriteRune(c)
+		default:
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
 }
