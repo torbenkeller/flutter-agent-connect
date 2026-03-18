@@ -51,7 +51,7 @@ func (i *IOSInteraction) TypeText(udid string, text string, clear bool, enter bo
 }
 
 // Swipe performs a swipe gesture between two points.
-func (i *IOSInteraction) Swipe(udid string, direction string, screenW, screenH int) error {
+func (i *IOSInteraction) Swipe(udid string, direction string, screenW, screenH, durationMs int) error {
 	centerX := screenW / 2
 	centerY := screenH / 2
 

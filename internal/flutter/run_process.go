@@ -24,9 +24,9 @@ type RunProcess struct {
 	nextID       int
 
 	// Channels for coordination
-	Started chan struct{} // closed when app.started is received
-	Stopped chan struct{} // closed when process exits
-	Err     error        // set if process exits with error
+	startedCh chan struct{} // closed when app.started is received
+	stoppedCh chan struct{} // closed when process exits
+	err       error        // set if process exits with error
 
 	// Log buffer
 	logMu sync.Mutex
@@ -103,18 +103,20 @@ func Start(flutterBin, workDir, deviceID, target string, dartDefines []string) (
 	}
 
 	p := &RunProcess{
-		cmd:     cmd,
-		stdin:   stdin,
-		stdout:  stdout,
-		Started: make(chan struct{}),
-		Stopped: make(chan struct{}),
+		cmd:       cmd,
+		stdin:     stdin,
+		stdout:    stdout,
+		startedCh: make(chan struct{}),
+		stoppedCh: make(chan struct{}),
 	}
 
-	// Read stderr in background
+	// Read stderr in background — store in log buffer so build errors are visible
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			log.Debug().Str("flutter_stderr", scanner.Text()).Send()
+			line := scanner.Text()
+			log.Debug().Str("flutter_stderr", line).Send()
+			p.addLog(line)
 		}
 	}()
 
@@ -123,12 +125,12 @@ func Start(flutterBin, workDir, deviceID, target string, dartDefines []string) (
 
 	// Wait for process exit in background
 	go func() {
-		p.Err = cmd.Wait()
+		p.err = cmd.Wait()
 		p.mu.Lock()
 		p.running = false
 		p.mu.Unlock()
-		close(p.Stopped)
-		log.Info().Err(p.Err).Msg("flutter run process exited")
+		close(p.stoppedCh)
+		log.Info().Err(p.err).Msg("flutter run process exited")
 	}()
 
 	return p, nil
@@ -151,7 +153,10 @@ func (p *RunProcess) readEvents() {
 		// Or a response: [{"id":1,"result":{...}}]
 		var messages []json.RawMessage
 		if err := json.Unmarshal(line, &messages); err != nil {
-			log.Debug().Str("raw", string(line)).Msg("non-JSON line from flutter run")
+			// Non-JSON output (e.g. raw compiler errors) — store in log buffer
+			text := string(line)
+			log.Debug().Str("raw", text).Msg("non-JSON line from flutter run")
+			p.addLog(text)
 			continue
 		}
 
@@ -199,19 +204,13 @@ func (p *RunProcess) handleEvent(evt Event) {
 		p.mu.Lock()
 		p.running = true
 		p.mu.Unlock()
-		close(p.Started)
+		close(p.startedCh)
 		log.Info().Msg("App started")
 
 	case "app.log":
 		var params appLogParams
 		json.Unmarshal(evt.Params, &params)
-		p.logMu.Lock()
-		p.logs = append(p.logs, LogEntry{Message: params.Log})
-		// Keep last 1000 entries
-		if len(p.logs) > 1000 {
-			p.logs = p.logs[len(p.logs)-1000:]
-		}
-		p.logMu.Unlock()
+		p.addLog(params.Log)
 
 	case "app.stop":
 		p.mu.Lock()
@@ -240,6 +239,21 @@ func (p *RunProcess) VMServiceURI() string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.vmServiceURI
+}
+
+// Started returns a channel that is closed when the app has started.
+func (p *RunProcess) Started() <-chan struct{} {
+	return p.startedCh
+}
+
+// Stopped returns a channel that is closed when the process has exited.
+func (p *RunProcess) Stopped() <-chan struct{} {
+	return p.stoppedCh
+}
+
+// Err returns the process exit error, if any.
+func (p *RunProcess) Err() error {
+	return p.err
 }
 
 // IsRunning returns whether the app is currently running.
@@ -312,6 +326,16 @@ func (p *RunProcess) Kill() {
 	if p.cmd.Process != nil {
 		p.cmd.Process.Kill()
 	}
+}
+
+// addLog appends a message to the log buffer (thread-safe).
+func (p *RunProcess) addLog(msg string) {
+	p.logMu.Lock()
+	p.logs = append(p.logs, LogEntry{Message: msg})
+	if len(p.logs) > 1000 {
+		p.logs = p.logs[len(p.logs)-1000:]
+	}
+	p.logMu.Unlock()
 }
 
 // Logs returns the buffered log entries.

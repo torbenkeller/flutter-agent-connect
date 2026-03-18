@@ -27,6 +27,13 @@ var flutterRunCmd = &cobra.Command{
 		fmt.Println("Building app... (this may take a moment)")
 		result, err := c.FlutterRun(session, target)
 		if err != nil {
+			if buildErr, ok := err.(*client.BuildError); ok {
+				fmt.Println("Build failed:")
+				for _, line := range buildErr.BuildOutput {
+					fmt.Printf("  %s\n", line)
+				}
+				return fmt.Errorf("build failed")
+			}
 			return fmt.Errorf("failed to run app: %w", err)
 		}
 

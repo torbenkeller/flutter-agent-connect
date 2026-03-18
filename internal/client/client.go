@@ -219,10 +219,21 @@ func (c *Client) DestroySession(idOrName string) error {
 // Flutter operations
 
 type FlutterRunResult struct {
-	AppID        string `json:"app_id"`
-	State        string `json:"state"`
-	DeviceID     string `json:"device_id,omitempty"`
-	VMServiceURI string `json:"vm_service_uri,omitempty"`
+	AppID        string   `json:"app_id"`
+	State        string   `json:"state"`
+	DeviceID     string   `json:"device_id,omitempty"`
+	VMServiceURI string   `json:"vm_service_uri,omitempty"`
+	BuildOutput  []string `json:"build_output,omitempty"`
+}
+
+// BuildError represents a Flutter build failure with captured output.
+type BuildError struct {
+	Message     string
+	BuildOutput []string
+}
+
+func (e *BuildError) Error() string {
+	return e.Message
 }
 
 func (c *Client) FlutterRun(session, target string) (*FlutterRunResult, error) {
@@ -239,7 +250,22 @@ func (c *Client) FlutterRun(session, target string) (*FlutterRunResult, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, readError(resp)
+		// Try to parse build error with output
+		var errResp struct {
+			Error       string   `json:"error"`
+			Message     string   `json:"message"`
+			BuildOutput []string `json:"build_output"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&errResp); err != nil {
+			return nil, fmt.Errorf("server error (status %d)", resp.StatusCode)
+		}
+		if len(errResp.BuildOutput) > 0 {
+			return nil, &BuildError{
+				Message:     errResp.Message,
+				BuildOutput: errResp.BuildOutput,
+			}
+		}
+		return nil, fmt.Errorf("%s", errResp.Message)
 	}
 
 	var result FlutterRunResult

@@ -159,12 +159,30 @@ func (p *Pool) List() []models.Device {
 	return result
 }
 
-// Simulator returns the iOS simulator manager.
-func (p *Pool) Simulator() *IOSSimulator {
-	return p.sim
+// Screenshot takes a screenshot of a device, dispatching by platform.
+func (p *Pool) Screenshot(udid string, platform models.PlatformType) ([]byte, error) {
+	switch platform {
+	case models.PlatformAndroid:
+		p.mu.RLock()
+		managed, ok := p.devices[udid]
+		p.mu.RUnlock()
+		if !ok || managed.ADBSerial == "" {
+			return nil, fmt.Errorf("Android device not found or not booted: %s", udid)
+		}
+		return p.emu.Screenshot(managed.ADBSerial)
+	default:
+		return p.sim.Screenshot(udid)
+	}
 }
 
-// Emulator returns the Android emulator manager.
-func (p *Pool) Emulator() *AndroidEmulator {
-	return p.emu
+// DeviceInfo returns the screen dimensions for a device.
+func (p *Pool) DeviceInfo(udid string) (width, height int, err error) {
+	p.mu.RLock()
+	managed, ok := p.devices[udid]
+	p.mu.RUnlock()
+	if !ok || managed.ADBSerial == "" {
+		return 0, 0, fmt.Errorf("device not found or not booted: %s", udid)
+	}
+	return p.emu.GetDeviceInfo(managed.ADBSerial)
 }
+

@@ -12,7 +12,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
-	"github.com/torbenkeller/flutter-agent-connect/internal/device"
 	"github.com/torbenkeller/flutter-agent-connect/internal/flutter"
 	"github.com/torbenkeller/flutter-agent-connect/internal/interaction"
 	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
@@ -20,11 +19,32 @@ import (
 
 // Manager handles session lifecycle.
 type Manager struct {
-	mu         sync.RWMutex
-	sessions   map[string]*Session
-	agents     map[string]*models.Agent
-	pool       *device.Pool
-	flutterSDK string
+	mu           sync.RWMutex
+	sessions     map[string]*Session
+	agents       map[string]*models.Agent
+	pool         DevicePool
+	interactors  map[models.PlatformType]Interactor
+	flutterSDK   string
+	startFlutter FlutterStarter
+	connectVM    VMServiceConnector
+}
+
+// Option configures a Manager.
+type Option func(*Manager)
+
+// WithFlutterStarter overrides the default flutter process starter.
+func WithFlutterStarter(s FlutterStarter) Option {
+	return func(m *Manager) { m.startFlutter = s }
+}
+
+// WithVMServiceConnector overrides the default VM Service connector.
+func WithVMServiceConnector(c VMServiceConnector) Option {
+	return func(m *Manager) { m.connectVM = c }
+}
+
+// WithInteractors overrides the default device interactors.
+func WithInteractors(i map[models.PlatformType]Interactor) Option {
+	return func(m *Manager) { m.interactors = i }
 }
 
 // PortForward represents a forwarded port with its dart-define mapping.
@@ -39,19 +59,45 @@ type PortForward struct {
 // Session wraps the model with runtime state.
 type Session struct {
 	models.Session
-	flutterProcess  *flutter.RunProcess
-	vmServiceClient *flutter.VMServiceClient
+	flutterProcess  FlutterProcess
+	vmServiceClient VMService
 	flutterDeviceID string // UDID for iOS, adb serial for Android
 	forwards        []PortForward
 }
 
-func NewManager(pool *device.Pool, flutterSDK string) *Manager {
-	return &Manager{
+func NewManager(pool DevicePool, flutterSDK string, opts ...Option) *Manager {
+	m := &Manager{
 		sessions:   make(map[string]*Session),
 		agents:     make(map[string]*models.Agent),
 		pool:       pool,
 		flutterSDK: flutterSDK,
+		// Default: real implementations
+		startFlutter: defaultFlutterStarter,
+		connectVM:    defaultVMServiceConnector,
+		interactors: map[models.PlatformType]Interactor{
+			models.PlatformIOS:     interaction.NewIOSInteraction(),
+			models.PlatformAndroid: interaction.NewAndroidInteraction(),
+		},
 	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// defaultFlutterStarter wraps flutter.Start to satisfy the FlutterStarter type.
+func defaultFlutterStarter(flutterBin, workDir, deviceID, target string, dartDefines []string) (FlutterProcess, error) {
+	return flutter.Start(flutterBin, workDir, deviceID, target, dartDefines)
+}
+
+// defaultVMServiceConnector wraps flutter.ConnectVMService to satisfy VMServiceConnector.
+func defaultVMServiceConnector(wsURI, adbSerial string) (VMService, error) {
+	client, err := flutter.ConnectVMService(wsURI)
+	if err != nil {
+		return nil, err
+	}
+	client.ADBSerial = adbSerial
+	return client, nil
 }
 
 // RegisterAgent registers a new agent.
@@ -212,7 +258,7 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 		log.Info().Strs("defines", dartDefines).Msg("Injecting dart-defines from port forwards")
 	}
 
-	proc, err := flutter.Start(m.flutterSDK, s.WorkDir, s.flutterDeviceID, target, dartDefines)
+	proc, err := m.startFlutter(m.flutterSDK, s.WorkDir, s.flutterDeviceID, target, dartDefines)
 	if err != nil {
 		m.mu.Lock()
 		s.State = models.SessionStateStopped
@@ -226,7 +272,7 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 
 	// Wait for app to start
 	select {
-	case <-proc.Started:
+	case <-proc.Started():
 		m.mu.Lock()
 		s.State = models.SessionStateRunning
 		m.mu.Unlock()
@@ -237,20 +283,49 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 			VMServiceURI: proc.VMServiceURI(),
 		}, nil
 
-	case <-proc.Stopped:
+	case <-proc.Stopped():
+		// Collect build output before clearing the process
+		logs := proc.Logs(0)
+		var buildOutput []string
+		for _, l := range logs {
+			buildOutput = append(buildOutput, l.Message)
+		}
+
 		m.mu.Lock()
 		s.State = models.SessionStateStopped
 		s.flutterProcess = nil
 		m.mu.Unlock()
 
-		return nil, fmt.Errorf("flutter run exited before app started: %v", proc.Err)
+		return &AppStartResult{
+			State:       "failed",
+			BuildOutput: buildOutput,
+		}, &BuildError{
+			Err:         proc.Err(),
+			BuildOutput: buildOutput,
+		}
 	}
 }
 
+// BuildError is returned when flutter run fails during build.
+// It carries the collected build output so callers can display it.
+type BuildError struct {
+	Err         error
+	BuildOutput []string
+}
+
+func (e *BuildError) Error() string {
+	return fmt.Sprintf("flutter run exited before app started: %v", e.Err)
+}
+
+func (e *BuildError) Unwrap() error {
+	return e.Err
+}
+
 type AppStartResult struct {
-	AppID        string `json:"app_id"`
-	State        string `json:"state"`
-	VMServiceURI string `json:"vm_service_uri,omitempty"`
+	AppID        string   `json:"app_id"`
+	State        string   `json:"state"`
+	VMServiceURI string   `json:"vm_service_uri,omitempty"`
+	BuildOutput  []string `json:"build_output,omitempty"`
 }
 
 // HotReload triggers a hot reload on the session's Flutter app.
@@ -315,7 +390,7 @@ func (m *Manager) StopApp(agentID, sessionID string) error {
 
 // getVMServiceClient returns or lazily creates a VM Service client for the session.
 // Reconnects if the old connection is stale (e.g., after hot restart).
-func (m *Manager) getVMServiceClient(s *Session) (*flutter.VMServiceClient, error) {
+func (m *Manager) getVMServiceClient(s *Session) (VMService, error) {
 	if s.vmServiceClient != nil {
 		// Test if still working with a quick ping
 		_, err := s.vmServiceClient.CallExtension("ext.flutter.platformOverride", nil)
@@ -337,18 +412,19 @@ func (m *Manager) getVMServiceClient(s *Session) (*flutter.VMServiceClient, erro
 		return nil, &models.ErrConflict{Message: "VM Service URI not available"}
 	}
 
-	log.Info().Str("wsUri", wsURI).Msg("Connecting to VM Service (lazy)")
-	client, err := flutter.ConnectVMService(wsURI)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to VM Service: %w", err)
-	}
-
-	// Set ADB serial for Android (needed for EnsureSemantics)
+	// Determine ADB serial for Android (needed for EnsureSemantics)
+	adbSerial := ""
 	if s.Platform == models.PlatformAndroid {
 		managed := m.pool.GetManaged(s.Device.UDID)
 		if managed != nil {
-			client.ADBSerial = managed.ADBSerial
+			adbSerial = managed.ADBSerial
 		}
+	}
+
+	log.Info().Str("wsUri", wsURI).Msg("Connecting to VM Service (lazy)")
+	client, err := m.connectVM(wsURI, adbSerial)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to VM Service: %w", err)
 	}
 
 	m.mu.Lock()
@@ -408,7 +484,7 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 		// Multiply by device pixel ratio = physical_width / logical_width.
 		if s.Platform == models.PlatformAndroid {
 			// Get physical screen size
-			w, _, devErr := m.pool.Emulator().GetDeviceInfo(s.flutterDeviceID)
+			w, _, devErr := m.pool.DeviceInfo(s.Device.UDID)
 			if devErr == nil && w > 0 {
 				// Get logical screen size from semantics tree root children
 				logicalW := 411.4 // sensible default
@@ -452,18 +528,23 @@ type TapResult struct {
 
 // platformTap sends a tap to the appropriate platform.
 func (m *Manager) platformTap(s *Session, x, y int) error {
-	switch s.Platform {
-	case models.PlatformAndroid:
+	deviceID, err := m.resolveDeviceID(s)
+	if err != nil {
+		return err
+	}
+	return m.interactors[s.Platform].Tap(deviceID, x, y)
+}
+
+// resolveDeviceID returns the device identifier for interactions (UDID for iOS, ADB serial for Android).
+func (m *Manager) resolveDeviceID(s *Session) (string, error) {
+	if s.Platform == models.PlatformAndroid {
 		managed := m.pool.GetManaged(s.Device.UDID)
 		if managed == nil || managed.ADBSerial == "" {
-			return &models.ErrConflict{Message: "Android emulator not running"}
+			return "", &models.ErrConflict{Message: "Android emulator not running"}
 		}
-		android := interaction.NewAndroidInteraction()
-		return android.Tap(managed.ADBSerial, x, y)
-	default:
-		ios := interaction.NewIOSInteraction()
-		return ios.Tap(s.Device.UDID, x, y)
+		return managed.ADBSerial, nil
 	}
+	return s.Device.UDID, nil
 }
 
 // DeviceType types text into the simulator/emulator.
@@ -480,18 +561,11 @@ func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool)
 		return &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	switch s.Platform {
-	case models.PlatformAndroid:
-		managed := m.pool.GetManaged(s.Device.UDID)
-		if managed == nil || managed.ADBSerial == "" {
-			return &models.ErrConflict{Message: "Android emulator not running"}
-		}
-		android := interaction.NewAndroidInteraction()
-		return android.TypeText(managed.ADBSerial, text, clear, enter)
-	default:
-		ios := interaction.NewIOSInteraction()
-		return ios.TypeText(s.Device.UDID, text, clear, enter)
+	deviceID, err := m.resolveDeviceID(s)
+	if err != nil {
+		return err
 	}
+	return m.interactors[s.Platform].TypeText(deviceID, text, clear, enter)
 }
 
 // DeviceSwipe sends a swipe gesture to the simulator/emulator.
@@ -508,18 +582,17 @@ func (m *Manager) DeviceSwipe(agentID, sessionID, direction string, durationMs i
 		return &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	switch s.Platform {
-	case models.PlatformAndroid:
-		managed := m.pool.GetManaged(s.Device.UDID)
-		if managed == nil || managed.ADBSerial == "" {
-			return &models.ErrConflict{Message: "Android emulator not running"}
-		}
-		android := interaction.NewAndroidInteraction()
-		return android.Swipe(managed.ADBSerial, direction, 1080, 2400, durationMs)
-	default:
-		ios := interaction.NewIOSInteraction()
-		return ios.Swipe(s.Device.UDID, direction, 402, 874)
+	deviceID, err := m.resolveDeviceID(s)
+	if err != nil {
+		return err
 	}
+
+	// Default screen dimensions per platform
+	screenW, screenH := 402, 874 // iOS logical pixels
+	if s.Platform == models.PlatformAndroid {
+		screenW, screenH = 1080, 2400 // Android physical pixels
+	}
+	return m.interactors[s.Platform].Swipe(deviceID, direction, screenW, screenH, durationMs)
 }
 
 // Screenshot takes a screenshot of the session's simulator.
@@ -536,16 +609,7 @@ func (m *Manager) Screenshot(agentID, sessionID string) ([]byte, error) {
 		return nil, &models.ErrValidation{Message: "No device assigned to session"}
 	}
 
-	switch s.Platform {
-	case models.PlatformAndroid:
-		managed := m.pool.GetManaged(s.Device.UDID)
-		if managed == nil || managed.ADBSerial == "" {
-			return nil, &models.ErrConflict{Message: "Android emulator not running"}
-		}
-		return m.pool.Emulator().Screenshot(managed.ADBSerial)
-	default:
-		return m.pool.Simulator().Screenshot(s.Device.UDID)
-	}
+	return m.pool.Screenshot(s.Device.UDID, s.Platform)
 }
 
 // DestroySession stops the app, deletes the simulator, and cleans up.

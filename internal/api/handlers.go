@@ -132,6 +132,15 @@ func (h *Handlers) FlutterRun(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.sessions.StartApp(agentID, id, req.Target)
 	if err != nil {
+		// If it's a build error, include the build output
+		if buildErr, ok := err.(*session.BuildError); ok {
+			writeJSON(w, http.StatusInternalServerError, map[string]any{
+				"error":        "build_error",
+				"message":      buildErr.Error(),
+				"build_output": buildErr.BuildOutput,
+			})
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
 		return
 	}
