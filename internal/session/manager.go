@@ -3,7 +3,10 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"net"
+	"os"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,12 +27,22 @@ type Manager struct {
 	flutterSDK string
 }
 
+// PortForward represents a forwarded port with its dart-define mapping.
+type PortForward struct {
+	ContainerPort int    `json:"container_port"`
+	HostPort      int    `json:"host_port"`
+	EnvName       string `json:"env_name,omitempty"`
+	URLiOS        string `json:"url_ios"`
+	URLAndroid    string `json:"url_android"`
+}
+
 // Session wraps the model with runtime state.
 type Session struct {
 	models.Session
 	flutterProcess  *flutter.RunProcess
 	vmServiceClient *flutter.VMServiceClient
 	flutterDeviceID string // UDID for iOS, adb serial for Android
+	forwards        []PortForward
 }
 
 func NewManager(pool *device.Pool, flutterSDK string) *Manager {
@@ -193,7 +206,13 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 		Str("target", target).
 		Msg("Starting Flutter app")
 
-	proc, err := flutter.Start(m.flutterSDK, s.WorkDir, s.flutterDeviceID, target)
+	// Build dart-defines from registered port forwards
+	dartDefines := m.GetDartDefines(sessionID, s.Platform)
+	if len(dartDefines) > 0 {
+		log.Info().Strs("defines", dartDefines).Msg("Injecting dart-defines from port forwards")
+	}
+
+	proc, err := flutter.Start(m.flutterSDK, s.WorkDir, s.flutterDeviceID, target, dartDefines)
 	if err != nil {
 		m.mu.Lock()
 		s.State = models.SessionStateStopped
@@ -582,6 +601,148 @@ func (m *Manager) DestroyAll() {
 type CommandResult struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
+}
+
+// AddForward registers a port forward for a session.
+// It discovers the host port via Docker and stores the mapping.
+func (m *Manager) AddForward(agentID, sessionID string, containerPort int, envName string) (*PortForward, error) {
+	m.mu.Lock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.Unlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.Unlock()
+
+	// Discover host port via Docker
+	hostPort, err := discoverDockerHostPort(containerPort)
+	if err != nil {
+		return nil, fmt.Errorf("could not discover host port for :%d: %w\nMake sure the port is exposed in your Docker/devcontainer config", containerPort, err)
+	}
+
+	fwd := PortForward{
+		ContainerPort: containerPort,
+		HostPort:      hostPort,
+		EnvName:       envName,
+		URLiOS:        fmt.Sprintf("http://localhost:%d", hostPort),
+		URLAndroid:    fmt.Sprintf("http://10.0.2.2:%d", hostPort),
+	}
+
+	m.mu.Lock()
+	s.forwards = append(s.forwards, fwd)
+	m.mu.Unlock()
+
+	log.Info().Int("container", containerPort).Int("host", hostPort).Str("env", envName).Msg("Port forward registered")
+	return &fwd, nil
+}
+
+// ListForwards returns all registered forwards for a session.
+func (m *Manager) ListForwards(agentID, sessionID string) ([]PortForward, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	return s.forwards, nil
+}
+
+// GetDartDefines builds the --dart-define arguments for flutter run based on forwards.
+func (m *Manager) GetDartDefines(sessionID string, platform models.PlatformType) []string {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil
+	}
+
+	var defines []string
+	for _, fwd := range s.forwards {
+		if fwd.EnvName == "" {
+			continue
+		}
+		url := fwd.URLiOS
+		if platform == models.PlatformAndroid {
+			url = fwd.URLAndroid
+		}
+		defines = append(defines, fmt.Sprintf("%s=%s", fwd.EnvName, url))
+	}
+	return defines
+}
+
+// discoverDockerHostPort finds the host port mapped to a container port.
+// Uses `docker port` on the current container, or falls back to checking
+// if the port is directly reachable on localhost.
+func discoverDockerHostPort(containerPort int) (int, error) {
+	// Method 1: Try to find our container ID and use docker port
+	containerID, err := detectContainerID()
+	if err == nil && containerID != "" {
+		out, err := exec.Command("docker", "port", containerID, fmt.Sprintf("%d", containerPort)).Output()
+		if err == nil {
+			// Output: "0.0.0.0:9001" or ":::9001"
+			parts := strings.Split(strings.TrimSpace(string(out)), ":")
+			if len(parts) >= 2 {
+				port := 0
+				fmt.Sscanf(parts[len(parts)-1], "%d", &port)
+				if port > 0 {
+					return port, nil
+				}
+			}
+		}
+	}
+
+	// Method 2: Check if the port is directly reachable on localhost
+	// (works when running outside Docker or with host networking)
+	conn, err := net.DialTimeout("tcp", fmt.Sprintf("localhost:%d", containerPort), 2*time.Second)
+	if err == nil {
+		conn.Close()
+		return containerPort, nil
+	}
+
+	return 0, fmt.Errorf("port %d not reachable. Expose it in Docker config or ensure the service is running", containerPort)
+}
+
+// detectContainerID tries to detect if we're running inside a Docker container.
+func detectContainerID() (string, error) {
+	// Check /proc/self/cgroup for docker container ID
+	data, err := os.ReadFile("/proc/self/cgroup")
+	if err != nil {
+		// Not in a container (macOS), try to find containers via docker ps
+		return detectContainerViaDocker()
+	}
+
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.Contains(line, "docker") {
+			parts := strings.Split(line, "/")
+			if len(parts) > 0 {
+				id := parts[len(parts)-1]
+				if len(id) >= 12 {
+					return id[:12], nil
+				}
+			}
+		}
+	}
+
+	return detectContainerViaDocker()
+}
+
+// detectContainerViaDocker lists running containers and finds one that has the port.
+func detectContainerViaDocker() (string, error) {
+	out, err := exec.Command("docker", "ps", "--format", "{{.ID}}").Output()
+	if err != nil {
+		return "", err
+	}
+
+	containers := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(containers) == 0 || containers[0] == "" {
+		return "", fmt.Errorf("no running containers found")
+	}
+
+	// Return the first container (for Phase 1, usually there's only one dev container)
+	return containers[0], nil
 }
 
 // FlutterClean runs `flutter clean` in the session's work directory.

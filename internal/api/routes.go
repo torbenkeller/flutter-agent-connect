@@ -37,6 +37,10 @@ func NewRouter(mgr *session.Manager, pool *device.Pool) *http.ServeMux {
 	mux.HandleFunc("POST /sessions/{id}/flutter/pub-get", h.FlutterPubGet)
 	mux.HandleFunc("GET /flutter/version", h.FlutterVersion)
 
+	// Port forwarding
+	mux.HandleFunc("POST /sessions/{id}/forward", h.AddForward)
+	mux.HandleFunc("GET /sessions/{id}/forward", h.ListForwards)
+
 	// Device interaction
 	mux.HandleFunc("GET /sessions/{id}/device/screenshot", h.DeviceScreenshot)
 	mux.HandleFunc("POST /sessions/{id}/device/tap", h.DeviceTap)

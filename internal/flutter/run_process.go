@@ -69,10 +69,14 @@ type appLogParams struct {
 }
 
 // Start spawns `flutter run --machine` and begins parsing events.
-func Start(flutterBin, workDir, deviceID, target string) (*RunProcess, error) {
+// dartDefines are passed as --dart-define=KEY=VALUE arguments.
+func Start(flutterBin, workDir, deviceID, target string, dartDefines []string) (*RunProcess, error) {
 	args := []string{"run", "--machine", "-d", deviceID}
 	if target != "" {
 		args = append(args, "--target", target)
+	}
+	for _, def := range dartDefines {
+		args = append(args, "--dart-define", def)
 	}
 
 	cmd := exec.Command(flutterBin, args...)

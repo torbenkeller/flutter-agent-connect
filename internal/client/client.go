@@ -490,6 +490,57 @@ func (c *Client) ToggleDebug(session, flag string) (bool, error) {
 	return false, fmt.Errorf("not implemented")
 }
 
+// Port Forwarding
+
+type ForwardResult struct {
+	ContainerPort int    `json:"container_port"`
+	HostPort      int    `json:"host_port"`
+	EnvName       string `json:"env_name,omitempty"`
+	URLiOS        string `json:"url_ios"`
+	URLAndroid    string `json:"url_android"`
+}
+
+func (c *Client) AddForward(session string, containerPort int, envName string) (*ForwardResult, error) {
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	body, _ := json.Marshal(map[string]any{"container_port": containerPort, "env_name": envName})
+	resp, err := c.post("/sessions/"+sessionID+"/forward", bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		return nil, readError(resp)
+	}
+
+	var result ForwardResult
+	json.NewDecoder(resp.Body).Decode(&result)
+	return &result, nil
+}
+
+func (c *Client) ListForwards(session string) ([]ForwardResult, error) {
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	resp, err := c.get("/sessions/" + sessionID + "/forward")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Forwards []ForwardResult `json:"forwards"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Forwards, nil
+}
+
 // Logs
 type LogEntry struct {
 	Timestamp string `json:"timestamp"`

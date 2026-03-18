@@ -214,6 +214,43 @@ func (h *Handlers) FlutterVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, version)
 }
 
+// Port forwarding handlers
+
+func (h *Handlers) AddForward(w http.ResponseWriter, r *http.Request) {
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	var req struct {
+		ContainerPort int    `json:"container_port"`
+		EnvName       string `json:"env_name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ContainerPort == 0 {
+		writeError(w, http.StatusBadRequest, "validation_error", "Missing required field: container_port")
+		return
+	}
+
+	fwd, err := h.sessions.AddForward(agentID, id, req.ContainerPort, req.EnvName)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusCreated, fwd)
+}
+
+func (h *Handlers) ListForwards(w http.ResponseWriter, r *http.Request) {
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	forwards, err := h.sessions.ListForwards(agentID, id)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"forwards": forwards})
+}
+
 // Device interaction handlers
 
 func (h *Handlers) DeviceScreenshot(w http.ResponseWriter, r *http.Request) {
