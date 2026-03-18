@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -542,14 +543,38 @@ func (c *Client) ListForwards(session string) ([]ForwardResult, error) {
 }
 
 // Logs
-type LogEntry struct {
-	Timestamp string `json:"timestamp"`
-	Level     string `json:"level"`
-	Message   string `json:"message"`
-}
 
-func (c *Client) GetLogs(session string, errorsOnly bool, lines int) ([]LogEntry, error) {
-	return nil, fmt.Errorf("not implemented")
+func (c *Client) GetLogs(session string, tail int) ([]string, error) {
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	path := "/sessions/" + sessionID + "/devtools/logs"
+	if tail > 0 {
+		path += fmt.Sprintf("?tail=%d", tail)
+	}
+
+	resp, err := c.get(path)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readError(resp)
+	}
+
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	text := strings.TrimRight(string(data), "\n")
+	if text == "" {
+		return nil, nil
+	}
+	return strings.Split(text, "\n"), nil
 }
 
 // Helpers

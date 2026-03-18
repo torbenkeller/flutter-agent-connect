@@ -745,6 +745,28 @@ func detectContainerViaDocker() (string, error) {
 	return containers[0], nil
 }
 
+// GetLogs returns the collected logs for a session. If tail > 0, only the last N lines.
+func (m *Manager) GetLogs(agentID, sessionID string, tail int) ([]string, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	if s.flutterProcess == nil {
+		return nil, &models.ErrConflict{Message: "No app running"}
+	}
+
+	entries := s.flutterProcess.Logs(tail)
+	lines := make([]string, len(entries))
+	for i, e := range entries {
+		lines[i] = e.Message
+	}
+	return lines, nil
+}
+
 // FlutterClean runs `flutter clean` in the session's work directory.
 func (m *Manager) FlutterClean(agentID, sessionID string) (*CommandResult, error) {
 	m.mu.RLock()

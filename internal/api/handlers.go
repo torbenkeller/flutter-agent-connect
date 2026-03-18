@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/torbenkeller/flutter-agent-connect/internal/device"
@@ -354,5 +355,24 @@ func (h *Handlers) DevtoolsRepaint(w http.ResponseWriter, r *http.Request) {
 	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
 }
 func (h *Handlers) DevtoolsLogs(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	tail := 0
+	if t := r.URL.Query().Get("tail"); t != "" {
+		fmt.Sscanf(t, "%d", &tail)
+	}
+
+	logs, err := h.sessions.GetLogs(agentID, id, tail)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	// Plain text output — one line per log entry
+	w.Header().Set("Content-Type", "text/plain")
+	w.WriteHeader(http.StatusOK)
+	for _, line := range logs {
+		fmt.Fprintln(w, line)
+	}
 }

@@ -69,8 +69,7 @@ var devtoolsLogsCmd = &cobra.Command{
 	Use:   "logs",
 	Short: "Show app logs",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		errors, _ := cmd.Flags().GetBool("errors")
-		lines, _ := cmd.Flags().GetInt("lines")
+		tail, _ := cmd.Flags().GetInt("tail")
 		session, _ := cmd.Flags().GetString("session")
 
 		c, err := client.Load()
@@ -78,13 +77,13 @@ var devtoolsLogsCmd = &cobra.Command{
 			return fmt.Errorf("not connected: %w", err)
 		}
 
-		logs, err := c.GetLogs(session, errors, lines)
+		logs, err := c.GetLogs(session, tail)
 		if err != nil {
 			return fmt.Errorf("failed to get logs: %w", err)
 		}
 
-		for _, entry := range logs {
-			fmt.Printf("[%s] %s\n", entry.Timestamp, entry.Message)
+		for _, line := range logs {
+			fmt.Println(line)
 		}
 		return nil
 	},
@@ -104,8 +103,7 @@ func init() {
 		devtoolsCmd.AddCommand(sub)
 	}
 
-	devtoolsLogsCmd.Flags().Bool("errors", false, "Show only errors and exceptions")
-	devtoolsLogsCmd.Flags().Int("lines", 50, "Number of log lines to show")
+	devtoolsLogsCmd.Flags().Int("tail", 0, "Show only the last N lines (0 = all)")
 	devtoolsLogsCmd.Flags().String("session", "", "Session ID or name (default: active session)")
 	devtoolsCmd.AddCommand(devtoolsLogsCmd)
 
