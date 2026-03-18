@@ -26,6 +26,16 @@ jobs:
           GOOS=linux GOARCH=arm64 go build -o bin/fac-linux-arm64 .
           # macOS arm64 (for the Mac host)
           GOOS=darwin GOARCH=arm64 go build -o bin/fac-darwin-arm64 .
+          # Update bundled binary in skill
+          cp bin/fac-linux-arm64 .claude/skills/flutter-test/bin/fac-linux-arm64
+
+      - name: Commit updated skill binary
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add .claude/skills/flutter-test/bin/
+          git diff --cached --quiet || git commit -m "Update bundled fac binary [skip ci]"
+          git push || true
 
       - name: Create Release
         env:
