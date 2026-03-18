@@ -137,6 +137,18 @@ func resolveViaMountInfo(containerPath string) (string, error) {
 	relative := strings.TrimPrefix(containerPath, bestMatch.containerPath)
 	hostPath := filepath.Join(bestMatch.hostPath, relative)
 
+	// Docker Desktop for Mac: VirtioFS mounts host paths relative to /Users,
+	// so mountinfo shows "/torben/project" instead of "/Users/torben/project".
+	// Detect and fix this.
+	if !strings.HasPrefix(hostPath, "/Users/") && !strings.HasPrefix(hostPath, "/home/") && !strings.HasPrefix(hostPath, "/tmp/") {
+		withUsers := "/Users" + hostPath
+		// Check if this looks like a valid macOS path (has at least /Users/<username>/...)
+		parts := strings.SplitN(strings.TrimPrefix(withUsers, "/Users/"), "/", 2)
+		if len(parts) >= 1 && parts[0] != "" {
+			hostPath = withUsers
+		}
+	}
+
 	return hostPath, nil
 }
 
