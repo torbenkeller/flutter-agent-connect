@@ -1,5 +1,12 @@
 You have access to FAC (Flutter Agent Connect), a CLI tool that lets you control Flutter simulators/emulators remotely from this container.
 
+## Install FAC (if not already installed)
+
+First, check if `fac` is available. If not, install it:
+```bash
+which fac || (curl -fsSL https://github.com/torbenkeller/flutter-agent-connect/releases/latest/download/fac-linux-arm64 -o /usr/local/bin/fac && chmod +x /usr/local/bin/fac)
+```
+
 ## Setup (run once per work session)
 
 Before interacting with the Flutter app, you MUST set up the connection and session:
