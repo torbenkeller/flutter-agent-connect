@@ -622,6 +622,12 @@ func (m *Manager) DestroySession(agentID, sessionID string) error {
 	}
 	m.mu.Unlock()
 
+	// Close VM Service connection
+	if s.vmServiceClient != nil {
+		s.vmServiceClient.Close()
+		s.vmServiceClient = nil
+	}
+
 	// Stop flutter process
 	if s.flutterProcess != nil && s.flutterProcess.IsRunning() {
 		log.Info().Str("session", sessionID).Msg("Stopping flutter run")

@@ -132,22 +132,39 @@ func (h *Handlers) FlutterRun(w http.ResponseWriter, r *http.Request) {
 		req.Target = "lib/main.dart"
 	}
 
-	result, err := h.sessions.StartApp(agentID, id, req.Target)
-	if err != nil {
-		// If it's a build error, include the build output
-		if buildErr, ok := err.(*session.BuildError); ok {
-			writeJSON(w, http.StatusInternalServerError, map[string]any{
-				"error":        "build_error",
-				"message":      buildErr.Error(),
-				"build_output": buildErr.BuildOutput,
-			})
+	// Run StartApp in a goroutine so we can cancel if the client disconnects.
+	// StartApp blocks until the Flutter build finishes — if the agent kills the
+	// CLI process (timeout, Ctrl+C), we stop the app instead of leaving it orphaned.
+	type startResult struct {
+		result *session.AppStartResult
+		err    error
+	}
+	ch := make(chan startResult, 1)
+	go func() {
+		result, err := h.sessions.StartApp(agentID, id, req.Target)
+		ch <- startResult{result, err}
+	}()
+
+	select {
+	case res := <-ch:
+		if res.err != nil {
+			if buildErr, ok := res.err.(*session.BuildError); ok {
+				writeJSON(w, http.StatusInternalServerError, map[string]any{
+					"error":        "build_error",
+					"message":      buildErr.Error(),
+					"build_output": buildErr.BuildOutput,
+				})
+				return
+			}
+			writeError(w, http.StatusInternalServerError, "internal_error", res.err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
-		return
-	}
+		writeJSON(w, http.StatusOK, res.result)
 
-	writeJSON(w, http.StatusOK, result)
+	case <-r.Context().Done():
+		// Client disconnected — stop the app to avoid orphaned builds
+		_ = h.sessions.StopApp(agentID, id)
+	}
 }
 
 func (h *Handlers) FlutterStop(w http.ResponseWriter, r *http.Request) {

@@ -856,6 +856,31 @@ func TestDestroySessionStopsApp(t *testing.T) {
 	}
 }
 
+func TestDestroySessionClosesVMService(t *testing.T) {
+	pool := newMockDevicePool()
+	pool.devices["test-udid"] = &device.ManagedDevice{
+		Device: models.Device{UDID: "test-udid"},
+	}
+	mockVM := &mockVMService{callExtResult: json.RawMessage(`{}`)}
+
+	m := newTestManagerWithPool(pool)
+
+	m.mu.Lock()
+	m.sessions["s1"] = &Session{
+		Session:         models.Session{ID: "s1", AgentID: "a1", Device: &models.Device{UDID: "test-udid"}, Platform: models.PlatformIOS},
+		vmServiceClient: mockVM,
+	}
+	m.mu.Unlock()
+
+	if err := m.DestroySession("a1", "s1"); err != nil {
+		t.Fatalf("DestroySession failed: %v", err)
+	}
+
+	if !mockVM.closed {
+		t.Error("VM Service connection should be closed on session destroy")
+	}
+}
+
 // --- Port Forward Tests ---
 
 func TestDartDefines(t *testing.T) {
