@@ -51,6 +51,10 @@ Flutter-App (auf Simulator-Maschine):
   fac flutter drive              [Phase 2]
   fac flutter widget-preview     [perspektivisch]
 
+Networking:
+  fac forward <port> -e <VAR>    Port forwarden + Dart-Define registrieren
+  fac forward list               Aktive Forwards auflisten
+
 Device-Interaktion:
   fac device screenshot          Screenshot vom Simulator
   fac device tap                 Tap (Widget-basiert oder Pixel)
@@ -114,10 +118,10 @@ Container und Mac teilen Projektdateien über Docker Volume Mount. Änderungen i
 | IDs | google/uuid |
 | File Sharing | Docker Volume Mount |
 
-## Spätere Erweiterungen (nicht Phase 1)
+## Spätere Erweiterungen
 
-- **rsync/SSH** für Cloud-Deployments (Container und Mac auf verschiedenen Maschinen)
-- **SSH-Tunnel** für sichere Remote-Verbindung
-- **Authentifizierung** für öffentlich erreichbare Server
-- **Android Emulator** Support
+- **Cloud-Deployment**: rsync/SSH für File-Sync, SSH-Tunnel für API, Reverse Proxy für Backend Port-Forwarding. Siehe [cloud.md](cloud.md).
+- **Authentifizierung**: SSH-Key-basiert für Cloud-Modus
 - **Web/macOS** Platform Support
+- **Flutter Test/Drive**: Integration Tests auf Simulatoren
+- **Widget Preview**: Isoliertes Widget-Testing
