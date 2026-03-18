@@ -1,0 +1,17 @@
+{
+  "id": "fac",
+  "version": "0.1.0",
+  "name": "Flutter Agent Connect (FAC)",
+  "description": "Installs the FAC CLI for bridging AI agents with Flutter simulators/emulators",
+  "documentationURL": "https://github.com/torbenkeller/flutter-agent-connect",
+  "options": {
+    "version": {
+      "type": "string",
+      "default": "latest",
+      "description": "FAC version to install (e.g. 'latest' or 'v0.1.0-abc1234')"
+    }
+  },
+  "installsAfter": [
+    "ghcr.io/devcontainers/features/common-utils"
+  ]
+}

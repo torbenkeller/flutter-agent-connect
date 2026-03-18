@@ -1,0 +1,41 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Build binaries (arm64 only)
+        run: |
+          # Linux arm64 (for DevContainers on Apple Silicon)
+          GOOS=linux GOARCH=arm64 go build -o bin/fac-linux-arm64 .
+          # macOS arm64 (for the Mac host)
+          GOOS=darwin GOARCH=arm64 go build -o bin/fac-darwin-arm64 .
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="v0.1.0-$(git rev-parse --short HEAD)"
+          gh release delete "$VERSION" --yes 2>/dev/null || true
+          gh release create "$VERSION" \
+            bin/fac-linux-arm64 \
+            bin/fac-darwin-arm64 \
+            --title "FAC $VERSION" \
+            --notes "Auto-built from main branch" \
+            --latest
