@@ -28,12 +28,11 @@ func (i *IOSInteraction) Tap(udid string, x, y int) error {
 }
 
 // TypeText types text into the currently focused field.
-func (i *IOSInteraction) TypeText(udid string, text string, clear bool, enter bool) error {
-	if clear {
+func (i *IOSInteraction) TypeText(udid, text string, clearField, enter bool) error {
+	if clearField {
 		// Select all + delete
-		if err := i.runIDB(udid, "ui", "key-sequence", "40", "42"); err != nil {
-			// Fallback: just continue with typing
-		}
+		// Select all + delete (ignore error; fallback: just continue with typing)
+		_ = i.runIDB(udid, "ui", "key-sequence", "40", "42")
 	}
 
 	if err := i.runIDB(udid, "ui", "text", text); err != nil {
@@ -51,7 +50,7 @@ func (i *IOSInteraction) TypeText(udid string, text string, clear bool, enter bo
 }
 
 // Swipe performs a swipe gesture between two points.
-func (i *IOSInteraction) Swipe(udid string, direction string, screenW, screenH, durationMs int) error {
+func (i *IOSInteraction) Swipe(udid, direction string, screenW, screenH, durationMs int) error {
 	centerX := screenW / 2
 	centerY := screenH / 2
 

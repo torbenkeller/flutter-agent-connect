@@ -83,7 +83,7 @@ func (m *mockSessionService) DeviceTap(agentID, sessionID, label, key string, x,
 func (m *mockSessionService) DeviceSwipe(agentID, sessionID, direction string, durationMs int) error {
 	return m.err
 }
-func (m *mockSessionService) DeviceType(agentID, sessionID, text string, clear, enter bool) error {
+func (m *mockSessionService) DeviceType(agentID, sessionID, text string, clearField, enter bool) error {
 	return m.err
 }
 func (m *mockSessionService) InspectWidgets(agentID, sessionID string) (string, error) {
@@ -130,7 +130,7 @@ func setupRouter(svc *mockSessionService, devices *mockDeviceLister) *http.Serve
 func doRequest(mux *http.ServeMux, method, path string, body any) *httptest.ResponseRecorder {
 	var buf bytes.Buffer
 	if body != nil {
-		json.NewEncoder(&buf).Encode(body)
+		_ = json.NewEncoder(&buf).Encode(body)
 	}
 	req := httptest.NewRequest(method, path, &buf)
 	req.Header.Set("Content-Type", "application/json")
@@ -484,7 +484,7 @@ func TestGetLogs(t *testing.T) {
 	}
 	mux := setupRouter(svc, nil)
 
-	req := httptest.NewRequest("GET", "/sessions/s1/devtools/logs?tail=2", nil)
+	req := httptest.NewRequest("GET", "/sessions/s1/devtools/logs?tail=2", http.NoBody)
 	req.Header.Set("X-Agent-ID", "test-agent")
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)
@@ -500,7 +500,7 @@ func TestGetLogs(t *testing.T) {
 func TestMissingAgentIDHeader(t *testing.T) {
 	mux := setupRouter(&mockSessionService{}, nil)
 
-	req := httptest.NewRequest("GET", "/sessions", nil)
+	req := httptest.NewRequest("GET", "/sessions", http.NoBody)
 	// No X-Agent-ID header
 	w := httptest.NewRecorder()
 	mux.ServeHTTP(w, req)

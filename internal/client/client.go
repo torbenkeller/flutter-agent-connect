@@ -52,7 +52,7 @@ func Connect(cfg ConnectConfig) (*Client, error) {
 	resp.Body.Close()
 
 	// Save config
-	if err := SaveConfig(&ClientConfig{
+	if err := SaveConfig(&Config{
 		ServerURL: c.ServerURL,
 		AgentID:   c.AgentID,
 	}); err != nil {
@@ -126,7 +126,7 @@ func (c *Client) CreateSession(platform, deviceType, name, workDir string) (*mod
 	cfg, _ := LoadConfig()
 	if cfg != nil {
 		cfg.ActiveSessionID = session.ID
-		SaveConfig(cfg)
+		_ = SaveConfig(cfg)
 	}
 
 	return &session, nil
@@ -179,7 +179,7 @@ func (c *Client) UseSession(idOrName string) (*models.Session, error) {
 			cfg, _ := LoadConfig()
 			if cfg != nil {
 				cfg.ActiveSessionID = s.ID
-				SaveConfig(cfg)
+				_ = SaveConfig(cfg)
 			}
 			return s, nil
 		}
@@ -209,7 +209,7 @@ func (c *Client) DestroySession(idOrName string) error {
 		cfg, _ := LoadConfig()
 		if cfg != nil {
 			cfg.ActiveSessionID = ""
-			SaveConfig(cfg)
+			_ = SaveConfig(cfg)
 		}
 	}
 
@@ -269,7 +269,9 @@ func (c *Client) FlutterRun(session, target string) (*FlutterRunResult, error) {
 	}
 
 	var result FlutterRunResult
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return &result, nil
 }
 
@@ -297,46 +299,39 @@ type ReloadResult struct {
 	Message    string `json:"message,omitempty"`
 }
 
-func (c *Client) FlutterHotReload(session string) (*ReloadResult, error) {
+// doSessionPost sends a POST to a session endpoint and decodes the JSON response into target.
+func (c *Client) doSessionPost(session, path string, target any) error {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
-		return nil, fmt.Errorf("no active session")
+		return fmt.Errorf("no active session")
 	}
 
-	resp, err := c.post("/sessions/"+sessionID+"/flutter/hot-reload", nil)
+	resp, err := c.post("/sessions/"+sessionID+path, nil)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, readError(resp)
+		return readError(resp)
 	}
 
+	if err := json.NewDecoder(resp.Body).Decode(target); err != nil {
+		return fmt.Errorf("failed to decode response: %w", err)
+	}
+	return nil
+}
+
+func (c *Client) FlutterHotReload(session string) (*ReloadResult, error) {
 	var result ReloadResult
-	json.NewDecoder(resp.Body).Decode(&result)
-	return &result, nil
+	err := c.doSessionPost(session, "/flutter/hot-reload", &result)
+	return &result, err
 }
 
 func (c *Client) FlutterHotRestart(session string) (*ReloadResult, error) {
-	sessionID := c.resolveSession(session)
-	if sessionID == "" {
-		return nil, fmt.Errorf("no active session")
-	}
-
-	resp, err := c.post("/sessions/"+sessionID+"/flutter/hot-restart", nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readError(resp)
-	}
-
 	var result ReloadResult
-	json.NewDecoder(resp.Body).Decode(&result)
-	return &result, nil
+	err := c.doSessionPost(session, "/flutter/hot-restart", &result)
+	return &result, err
 }
 
 type CommandResult struct {
@@ -345,45 +340,15 @@ type CommandResult struct {
 }
 
 func (c *Client) FlutterClean(session string) (*CommandResult, error) {
-	sessionID := c.resolveSession(session)
-	if sessionID == "" {
-		return nil, fmt.Errorf("no active session")
-	}
-
-	resp, err := c.post("/sessions/"+sessionID+"/flutter/clean", nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readError(resp)
-	}
-
 	var result CommandResult
-	json.NewDecoder(resp.Body).Decode(&result)
-	return &result, nil
+	err := c.doSessionPost(session, "/flutter/clean", &result)
+	return &result, err
 }
 
 func (c *Client) FlutterPubGet(session string) (*CommandResult, error) {
-	sessionID := c.resolveSession(session)
-	if sessionID == "" {
-		return nil, fmt.Errorf("no active session")
-	}
-
-	resp, err := c.post("/sessions/"+sessionID+"/flutter/pub-get", nil)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, readError(resp)
-	}
-
 	var result CommandResult
-	json.NewDecoder(resp.Body).Decode(&result)
-	return &result, nil
+	err := c.doSessionPost(session, "/flutter/pub-get", &result)
+	return &result, err
 }
 
 func (c *Client) FlutterVersion() (string, error) {
@@ -465,7 +430,9 @@ func (c *Client) doTap(session string, body map[string]any) (*TapResult, error) 
 	}
 
 	var result TapResult
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return &result, nil
 }
 
@@ -488,13 +455,13 @@ func (c *Client) Swipe(session, direction string, durationMs int) error {
 	return nil
 }
 
-func (c *Client) TypeText(session, text string, clear, enter bool) error {
+func (c *Client) TypeText(session, text string, clearField, enter bool) error {
 	sessionID := c.resolveSession(session)
 	if sessionID == "" {
 		return fmt.Errorf("no active session")
 	}
 
-	body, _ := json.Marshal(map[string]any{"text": text, "clear": clear, "enter": enter})
+	body, _ := json.Marshal(map[string]any{"text": text, "clear": clearField, "enter": enter})
 	resp, err := c.post("/sessions/"+sessionID+"/device/type", bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -551,7 +518,9 @@ func (c *Client) ToggleDebug(session, flag string) (bool, error) {
 	var result struct {
 		Enabled bool `json:"enabled"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return result.Enabled, nil
 }
 
@@ -583,7 +552,9 @@ func (c *Client) AddForward(session string, containerPort int, envName string) (
 	}
 
 	var result ForwardResult
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return &result, nil
 }
 
@@ -602,7 +573,9 @@ func (c *Client) ListForwards(session string) ([]ForwardResult, error) {
 	var result struct {
 		Forwards []ForwardResult `json:"forwards"`
 	}
-	json.NewDecoder(resp.Body).Decode(&result)
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
 	return result.Forwards, nil
 }
 
@@ -651,7 +624,7 @@ func (c *Client) resolveSession(idOrName string) string {
 }
 
 func (c *Client) get(path string) (*http.Response, error) {
-	req, err := http.NewRequest("GET", c.ServerURL+path, nil)
+	req, err := http.NewRequest("GET", c.ServerURL+path, http.NoBody)
 	if err != nil {
 		return nil, err
 	}
@@ -670,7 +643,7 @@ func (c *Client) post(path string, body io.Reader) (*http.Response, error) {
 }
 
 func (c *Client) delete(path string) (*http.Response, error) {
-	req, err := http.NewRequest("DELETE", c.ServerURL+path, nil)
+	req, err := http.NewRequest("DELETE", c.ServerURL+path, http.NoBody)
 	if err != nil {
 		return nil, err
 	}

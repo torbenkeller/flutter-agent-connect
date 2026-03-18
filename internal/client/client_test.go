@@ -23,11 +23,11 @@ func simpleMux() *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": "0.1.0"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok", "version": "0.1.0"})
 	})
 
 	mux.HandleFunc("GET /sessions", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"sessions": []map[string]any{
 				{"id": "s1", "name": "ios", "platform": "ios"},
 				{"id": "s2", "name": "android", "platform": "android"},
@@ -39,23 +39,23 @@ func simpleMux() *http.ServeMux {
 		id := r.PathValue("id")
 		if id == "notfound" {
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "not_found", "message": "session not found"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "not_found", "message": "session not found"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": id, "name": "test", "platform": "ios"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"id": id, "name": "test", "platform": "ios"})
 	})
 
 	mux.HandleFunc("DELETE /sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"message": "Session destroyed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "Session destroyed"})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/flutter/run", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]string
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 
 		if req["target"] == "broken.dart" {
 			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]any{
+			_ = json.NewEncoder(w).Encode(map[string]any{
 				"error":        "build_error",
 				"message":      "build failed",
 				"build_output": []string{"lib/main.dart:4: Error: Expected ';'"},
@@ -63,45 +63,45 @@ func simpleMux() *http.ServeMux {
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"app_id": "app-123",
 			"state":  "running",
 		})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/flutter/stop", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"message": "App stopped"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "App stopped"})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/flutter/hot-reload", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"success": true, "reload_duration_ms": 150})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "reload_duration_ms": 150})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/flutter/hot-restart", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"success": true, "reload_duration_ms": 2500})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "reload_duration_ms": 2500})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/flutter/clean", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "flutter clean completed"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "flutter clean completed"})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/flutter/pub-get", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "flutter pub get completed"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true, "message": "flutter pub get completed"})
 	})
 
 	mux.HandleFunc("GET /flutter/version", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"frameworkVersion": "3.24.0", "channel": "stable"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"frameworkVersion": "3.24.0", "channel": "stable"})
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/device/screenshot", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
-		w.Write([]byte{0x89, 0x50, 0x4E, 0x47}) // PNG magic
+		_, _ = w.Write([]byte{0x89, 0x50, 0x4E, 0x47}) // PNG magic
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/device/tap", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"success": true,
 			"x":       150,
 			"y":       225,
@@ -110,34 +110,34 @@ func simpleMux() *http.ServeMux {
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/device/swipe", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"success": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/device/type", func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]any
-		json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewDecoder(r.Body).Decode(&req)
 		if req["text"] == nil || req["text"] == "" {
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "validation_error", "message": "Missing text"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"error": "validation_error", "message": "Missing text"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"success": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/devtools/widgets", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"type": "widgets", "data": "MyApp\n └Scaffold"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "widgets", "data": "MyApp\n └Scaffold"})
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/devtools/render", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"type": "render", "data": "RenderView#abc"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "render", "data": "RenderView#abc"})
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/devtools/semantics", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"type": "semantics", "data": map[string]any{"id": 0, "label": "root"}})
+		_ = json.NewEncoder(w).Encode(map[string]any{"type": "semantics", "data": map[string]any{"id": 0, "label": "root"}})
 	})
 
 	mux.HandleFunc("POST /sessions/{id}/devtools/paint", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"flag": "paint", "enabled": true})
+		_ = json.NewEncoder(w).Encode(map[string]any{"flag": "paint", "enabled": true})
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/devtools/logs", func(w http.ResponseWriter, r *http.Request) {
@@ -149,7 +149,7 @@ func simpleMux() *http.ServeMux {
 
 	mux.HandleFunc("POST /sessions/{id}/forward", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"container_port": 8080,
 			"host_port":      9001,
 			"env_name":       "API_URL",
@@ -159,7 +159,7 @@ func simpleMux() *http.ServeMux {
 	})
 
 	mux.HandleFunc("GET /sessions/{id}/forward", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"forwards": []map[string]any{
 				{"container_port": 8080, "host_port": 9001, "env_name": "API_URL"},
 			},

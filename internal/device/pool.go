@@ -127,7 +127,7 @@ func (p *Pool) DeleteDevice(udid string, platform models.PlatformType) error {
 		}
 	case models.PlatformAndroid:
 		if ok && managed.ADBSerial != "" {
-			p.emu.Shutdown(managed.ADBSerial)
+			_ = p.emu.Shutdown(managed.ADBSerial)
 		}
 		if err := p.emu.Delete(udid); err != nil {
 			return err
@@ -185,4 +185,3 @@ func (p *Pool) DeviceInfo(udid string) (width, height int, err error) {
 	}
 	return p.emu.GetDeviceInfo(managed.ADBSerial)
 }
-

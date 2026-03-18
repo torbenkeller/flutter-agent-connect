@@ -1,0 +1,82 @@
+run:
+  timeout: 5m
+
+linters:
+  enable:
+    # Bugs & correctness
+    - govet
+    - staticcheck
+    - errcheck
+    - bodyclose
+    - nilerr
+    - nilnil
+
+    # Code quality
+    - gocritic
+    - gosimple
+    - ineffassign
+    - unused
+    - unconvert
+    - unparam
+    - wastedassign
+
+    # Style & consistency
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+
+    # Duplication
+    - dupl
+
+    # Performance
+    - prealloc
+
+    # Security
+    - gosec
+
+linters-settings:
+  dupl:
+    threshold: 100
+
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - style
+      - performance
+      - opinionated
+
+  revive:
+    rules:
+      - name: blank-imports
+      - name: context-as-argument
+      - name: dot-imports
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: exported
+      - name: increment-decrement
+      - name: var-naming
+      - name: range
+      - name: receiver-naming
+      - name: indent-error-flow
+      - name: empty-block
+      - name: superfluous-else
+      - name: unreachable-code
+      - name: redefines-builtin-id
+
+  errcheck:
+    check-type-assertions: true
+
+  gosec:
+    excludes:
+      - G104 # unhandled errors on deferred Close() calls — too noisy
+      - G204 # subprocess with variable args — we are a CLI wrapper, this is our core purpose
+      - G304 # file path from variable — expected in our use case
+
+  misspell:
+    locale: US
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

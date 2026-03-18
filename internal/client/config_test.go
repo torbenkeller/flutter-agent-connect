@@ -13,7 +13,7 @@ func TestSaveAndLoadConfig(t *testing.T) {
 	os.Setenv("HOME", tmpDir)
 	defer os.Setenv("HOME", origHome)
 
-	cfg := &ClientConfig{
+	cfg := &Config{
 		ServerURL:       "http://localhost:8420",
 		AgentID:         "test-agent",
 		ActiveSessionID: "abc-123",

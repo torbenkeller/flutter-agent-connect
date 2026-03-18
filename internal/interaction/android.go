@@ -2,9 +2,9 @@ package interaction
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
-	"os"
 	"strings"
 )
 
@@ -31,10 +31,10 @@ func (a *AndroidInteraction) Tap(serial string, x, y int) error {
 }
 
 // TypeText types text into the focused field via adb.
-func (a *AndroidInteraction) TypeText(serial string, text string, clear bool, enter bool) error {
-	if clear {
+func (a *AndroidInteraction) TypeText(serial, text string, clearField, enter bool) error {
+	if clearField {
 		// Select all (Ctrl+A) + delete
-		a.runADB(serial, "shell", "input", "keyevent", "29", "67") // KEYCODE_A with CTRL, then DEL
+		_ = a.runADB(serial, "shell", "input", "keyevent", "29", "67") // KEYCODE_A with CTRL, then DEL
 	}
 
 	// adb shell input text has issues with special characters
@@ -60,7 +60,7 @@ func (a *AndroidInteraction) TypeText(serial string, text string, clear bool, en
 }
 
 // Swipe performs a swipe gesture via adb shell input.
-func (a *AndroidInteraction) Swipe(serial string, direction string, screenW, screenH, durationMs int) error {
+func (a *AndroidInteraction) Swipe(serial, direction string, screenW, screenH, durationMs int) error {
 	centerX := screenW / 2
 	centerY := screenH / 2
 

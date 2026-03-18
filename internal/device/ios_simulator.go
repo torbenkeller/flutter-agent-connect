@@ -41,9 +41,9 @@ type simctlRuntimesOutput struct {
 }
 
 type simctlRuntime struct {
-	Name       string `json:"name"`
-	Identifier string `json:"identifier"`
-	IsAvailable bool  `json:"isAvailable"`
+	Name        string `json:"name"`
+	Identifier  string `json:"identifier"`
+	IsAvailable bool   `json:"isAvailable"`
 }
 
 // ListAll returns all available iOS simulators.

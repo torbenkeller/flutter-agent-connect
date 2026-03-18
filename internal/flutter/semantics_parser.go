@@ -36,35 +36,34 @@ func parseSemanticsText(text string) *SemanticsNode {
 		}
 
 		// Parse properties of current node
-		if strings.HasPrefix(trimmed, "Rect.fromLTRB(") {
+		switch {
+		case strings.HasPrefix(trimmed, "Rect.fromLTRB("):
 			rect := parseRect(trimmed)
 			if rect != nil {
 				currentNode.Rect = rect
 			}
-		} else if strings.HasPrefix(trimmed, "[[") || (strings.HasPrefix(trimmed, "[") && strings.Contains(trimmed, ",0.0,")) {
+		case strings.HasPrefix(trimmed, "[[") || (strings.HasPrefix(trimmed, "[") && strings.Contains(trimmed, ",0.0,")):
 			// Transform matrix row — extract translation offsets
 			parseTransformRow(trimmed, currentNode)
-		} else if strings.HasPrefix(trimmed, "label: ") {
+		case strings.HasPrefix(trimmed, "label: "):
 			currentNode.Label = parseQuotedValue(trimmed, "label: ")
-		} else if strings.HasPrefix(trimmed, "tooltip: ") {
+		case strings.HasPrefix(trimmed, "tooltip: "):
 			// tooltip acts as label for interaction purposes
 			if currentNode.Label == "" {
 				currentNode.Label = parseQuotedValue(trimmed, "tooltip: ")
 			}
 			currentNode.Hint = parseQuotedValue(trimmed, "tooltip: ")
-		} else if strings.HasPrefix(trimmed, "value: ") {
+		case strings.HasPrefix(trimmed, "value: "):
 			currentNode.Value = parseQuotedValue(trimmed, "value: ")
-		} else if strings.HasPrefix(trimmed, "flags: ") {
+		case strings.HasPrefix(trimmed, "flags: "):
 			currentNode.Flags = parseCSV(trimmed, "flags: ")
-		} else if strings.HasPrefix(trimmed, "actions: ") {
+		case strings.HasPrefix(trimmed, "actions: "):
 			currentNode.Actions = parseCSV(trimmed, "actions: ")
-		} else if strings.HasPrefix(trimmed, "textDirection:") {
-			// skip
-		} else if strings.HasPrefix(trimmed, "sortKey:") {
-			// skip
-		} else if strings.Contains(trimmed, "merged up") || strings.Contains(trimmed, "merge boundary") {
-			// Merge info - the child merges into parent
-			// Actions/flags from merged children apply to the parent
+		case strings.HasPrefix(trimmed, "textDirection:"),
+			strings.HasPrefix(trimmed, "sortKey:"),
+			strings.Contains(trimmed, "merged up"),
+			strings.Contains(trimmed, "merge boundary"):
+			// Intentionally ignored: textDirection, sortKey, and merge info
 		}
 	}
 

@@ -3,8 +3,8 @@ package models
 type DeviceState string
 
 const (
-	DeviceStateShutdown  DeviceState = "Shutdown"
-	DeviceStateBooted    DeviceState = "Booted"
+	DeviceStateShutdown     DeviceState = "Shutdown"
+	DeviceStateBooted       DeviceState = "Booted"
 	DeviceStateShuttingDown DeviceState = "Shutting Down"
 )
 

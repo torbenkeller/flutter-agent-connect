@@ -10,9 +10,9 @@ import (
 	"github.com/torbenkeller/flutter-agent-connect/pkg/models"
 )
 
-func newTestManager(opts ...Option) *Manager {
+func newTestManager() *Manager {
 	pool := newMockDevicePool()
-	return NewManager(pool, "flutter", opts...)
+	return NewManager(pool, "flutter")
 }
 
 func newTestManagerWithPool(pool *mockDevicePool, opts ...Option) *Manager {
@@ -219,7 +219,7 @@ func TestCreateSessionBootFailure(t *testing.T) {
 
 func TestStartAppSuccess(t *testing.T) {
 	pool := newMockDevicePool()
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	starter := func(bin, dir, device, target string, defines []string) (FlutterProcess, error) {
 		return mockProc, nil
@@ -313,7 +313,7 @@ func TestStartAppNoWorkDir(t *testing.T) {
 
 func TestStartAppAlreadyRunning(t *testing.T) {
 	m := newTestManager()
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -332,7 +332,7 @@ func TestStartAppAlreadyRunning(t *testing.T) {
 
 func TestHotReload(t *testing.T) {
 	m := newTestManager()
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -363,7 +363,7 @@ func TestHotReloadNoApp(t *testing.T) {
 
 func TestHotRestart(t *testing.T) {
 	m := newTestManager()
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -381,7 +381,7 @@ func TestHotRestart(t *testing.T) {
 
 func TestStopApp(t *testing.T) {
 	m := newTestManager()
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -518,7 +518,7 @@ func TestDeviceTapByLabel(t *testing.T) {
 		models.PlatformIOS: ios,
 	}))
 
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -555,7 +555,7 @@ func TestDeviceTapLabelNotFound(t *testing.T) {
 	}
 
 	m := newTestManagerWithPool(pool)
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -636,55 +636,54 @@ func TestDeviceSwipe(t *testing.T) {
 
 // --- Inspect Tests ---
 
-func TestInspectWidgets(t *testing.T) {
-	m := newTestManager()
-	mockVM := &mockVMService{
-		callExtResult: json.RawMessage(`{}`),
-		widgetTree:    "MyApp\n └MaterialApp\n  └Scaffold",
-	}
-	mockProc := newMockFlutterProcess(true)
-
-	m.mu.Lock()
-	m.sessions["s1"] = &Session{
-		Session:         models.Session{ID: "s1", AgentID: "a1"},
-		flutterProcess:  mockProc,
-		vmServiceClient: mockVM,
-	}
-	m.mu.Unlock()
-
-	tree, err := m.InspectWidgets("a1", "s1")
-	if err != nil {
-		t.Fatalf("InspectWidgets failed: %v", err)
-	}
-
-	if tree != "MyApp\n └MaterialApp\n  └Scaffold" {
-		t.Errorf("unexpected widget tree: %s", tree)
-	}
-}
-
-func TestInspectRender(t *testing.T) {
-	m := newTestManager()
-	mockVM := &mockVMService{
-		callExtResult: json.RawMessage(`{}`),
-		renderTree:    "RenderView#abc\n └RenderSemanticsAnnotations",
-	}
-	mockProc := newMockFlutterProcess(true)
-
-	m.mu.Lock()
-	m.sessions["s1"] = &Session{
-		Session:         models.Session{ID: "s1", AgentID: "a1"},
-		flutterProcess:  mockProc,
-		vmServiceClient: mockVM,
-	}
-	m.mu.Unlock()
-
-	tree, err := m.InspectRender("a1", "s1")
-	if err != nil {
-		t.Fatalf("InspectRender failed: %v", err)
+func TestInspectTreeDumps(t *testing.T) {
+	tests := []struct {
+		name       string
+		widgetTree string
+		renderTree string
+		inspect    func(*Manager) (string, error)
+		expected   string
+	}{
+		{
+			name:       "widgets",
+			widgetTree: "MyApp\n └MaterialApp\n  └Scaffold",
+			inspect:    func(m *Manager) (string, error) { return m.InspectWidgets("a1", "s1") },
+			expected:   "MyApp\n └MaterialApp\n  └Scaffold",
+		},
+		{
+			name:       "render",
+			renderTree: "RenderView#abc\n └RenderSemanticsAnnotations",
+			inspect:    func(m *Manager) (string, error) { return m.InspectRender("a1", "s1") },
+			expected:   "RenderView#abc\n └RenderSemanticsAnnotations",
+		},
 	}
 
-	if tree != "RenderView#abc\n └RenderSemanticsAnnotations" {
-		t.Errorf("unexpected render tree: %s", tree)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newTestManager()
+			mockVM := &mockVMService{
+				callExtResult: json.RawMessage(`{}`),
+				widgetTree:    tt.widgetTree,
+				renderTree:    tt.renderTree,
+			}
+			mockProc := newMockFlutterProcess()
+
+			m.mu.Lock()
+			m.sessions["s1"] = &Session{
+				Session:         models.Session{ID: "s1", AgentID: "a1"},
+				flutterProcess:  mockProc,
+				vmServiceClient: mockVM,
+			}
+			m.mu.Unlock()
+
+			tree, err := tt.inspect(m)
+			if err != nil {
+				t.Fatalf("Inspect failed: %v", err)
+			}
+			if tree != tt.expected {
+				t.Errorf("expected %q, got %q", tt.expected, tree)
+			}
+		})
 	}
 }
 
@@ -695,7 +694,7 @@ func TestInspectSemantics(t *testing.T) {
 		callExtResult: json.RawMessage(`{}`),
 		semanticsTree: expected,
 	}
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -723,7 +722,7 @@ func TestToggleDebugFlag(t *testing.T) {
 		callExtResult: json.RawMessage(`{}`),
 		toggleResult:  true,
 	}
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -746,7 +745,7 @@ func TestToggleDebugFlag(t *testing.T) {
 func TestToggleDebugFlagUnknown(t *testing.T) {
 	m := newTestManager()
 	mockVM := &mockVMService{callExtResult: json.RawMessage(`{}`)}
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{
@@ -766,7 +765,7 @@ func TestToggleDebugFlagUnknown(t *testing.T) {
 
 func TestGetLogs(t *testing.T) {
 	m := newTestManager()
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 	mockProc.logs = []flutter.LogEntry{
 		{Message: "flutter: Starting app"},
 		{Message: "flutter: Hello World"},
@@ -841,7 +840,7 @@ func TestDestroySessionStopsApp(t *testing.T) {
 	pool.devices["test-udid"] = &device.ManagedDevice{
 		Device: models.Device{UDID: "test-udid"},
 	}
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m := newTestManagerWithPool(pool)
 
@@ -909,7 +908,7 @@ func TestVMServiceReconnectsOnStale(t *testing.T) {
 	}
 
 	m := newTestManagerWithPool(pool, WithVMServiceConnector(connector))
-	mockProc := newMockFlutterProcess(true)
+	mockProc := newMockFlutterProcess()
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{

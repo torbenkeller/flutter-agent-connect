@@ -22,8 +22,8 @@ type DevicePool interface {
 // Interactor sends input events to a device.
 type Interactor interface {
 	Tap(deviceID string, x, y int) error
-	TypeText(deviceID string, text string, clear, enter bool) error
-	Swipe(deviceID string, direction string, screenW, screenH, durationMs int) error
+	TypeText(deviceID, text string, clearField, enter bool) error
+	Swipe(deviceID, direction string, screenW, screenH, durationMs int) error
 }
 
 // FlutterProcess abstracts a running flutter run --machine process.

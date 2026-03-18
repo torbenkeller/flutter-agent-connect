@@ -49,7 +49,7 @@ Examples:
 			f.Close()
 		}
 
-		if err := os.WriteFile(output, data, 0644); err != nil {
+		if err := os.WriteFile(output, data, 0o600); err != nil {
 			return fmt.Errorf("failed to write screenshot: %w", err)
 		}
 
@@ -157,7 +157,7 @@ var deviceTypeCmd = &cobra.Command{
 	Args:  cobra.MinimumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		text := strings.Join(args, " ")
-		clear, _ := cmd.Flags().GetBool("clear")
+		clearField, _ := cmd.Flags().GetBool("clear")
 		enter, _ := cmd.Flags().GetBool("enter")
 		session, _ := cmd.Flags().GetString("session")
 
@@ -166,7 +166,7 @@ var deviceTypeCmd = &cobra.Command{
 			return fmt.Errorf("not connected: %w", err)
 		}
 
-		if err := c.TypeText(session, text, clear, enter); err != nil {
+		if err := c.TypeText(session, text, clearField, enter); err != nil {
 			return fmt.Errorf("type failed: %w", err)
 		}
 

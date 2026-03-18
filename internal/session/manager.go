@@ -154,7 +154,7 @@ func (m *Manager) CreateSession(agentID string, platform models.PlatformType, de
 	log.Info().Str("udid", managed.UDID).Str("name", managed.Name).Msg("Booting device")
 	flutterDeviceID, err := m.pool.BootDevice(managed.UDID, platform)
 	if err != nil {
-		m.pool.DeleteDevice(managed.UDID, platform)
+		_ = m.pool.DeleteDevice(managed.UDID, platform)
 		return nil, fmt.Errorf("failed to boot device: %w", err)
 	}
 	managed.State = models.DeviceStateBooted
@@ -297,12 +297,12 @@ func (m *Manager) StartApp(agentID, sessionID, target string) (*AppStartResult, 
 		m.mu.Unlock()
 
 		return &AppStartResult{
-			State:       "failed",
-			BuildOutput: buildOutput,
-		}, &BuildError{
-			Err:         proc.Err(),
-			BuildOutput: buildOutput,
-		}
+				State:       "failed",
+				BuildOutput: buildOutput,
+			}, &BuildError{
+				Err:         proc.Err(),
+				BuildOutput: buildOutput,
+			}
 	}
 }
 
@@ -436,7 +436,7 @@ func (m *Manager) getVMServiceClient(s *Session) (VMService, error) {
 
 // DeviceTap sends a tap event to the simulator.
 // Supports tapping by label (via semantics tree), key, or raw coordinates.
-func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y float64, index int) (*TapResult, error) {
+func (m *Manager) DeviceTap(agentID, sessionID, label, key string, x, y float64, index int) (*TapResult, error) { //nolint:gocritic // splitting label,key from agentID,sessionID improves readability
 	m.mu.RLock()
 	s, ok := m.sessions[sessionID]
 	if !ok || s.AgentID != agentID {
@@ -520,10 +520,10 @@ func (m *Manager) DeviceTap(agentID, sessionID string, label, key string, x, y f
 
 // TapResult represents the result of a tap operation.
 type TapResult struct {
-	Success  bool   `json:"success"`
-	X        int    `json:"x"`
-	Y        int    `json:"y"`
-	Element  string `json:"element,omitempty"`
+	Success bool   `json:"success"`
+	X       int    `json:"x"`
+	Y       int    `json:"y"`
+	Element string `json:"element,omitempty"`
 }
 
 // platformTap sends a tap to the appropriate platform.
@@ -548,7 +548,7 @@ func (m *Manager) resolveDeviceID(s *Session) (string, error) {
 }
 
 // DeviceType types text into the simulator/emulator.
-func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool) error {
+func (m *Manager) DeviceType(agentID, sessionID, text string, clearField, enter bool) error {
 	m.mu.RLock()
 	s, ok := m.sessions[sessionID]
 	if !ok || s.AgentID != agentID {
@@ -565,7 +565,7 @@ func (m *Manager) DeviceType(agentID, sessionID, text string, clear, enter bool)
 	if err != nil {
 		return err
 	}
-	return m.interactors[s.Platform].TypeText(deviceID, text, clear, enter)
+	return m.interactors[s.Platform].TypeText(deviceID, text, clearField, enter)
 }
 
 // DeviceSwipe sends a swipe gesture to the simulator/emulator.
@@ -723,7 +723,7 @@ func (m *Manager) GetDartDefines(sessionID string, platform models.PlatformType)
 		return nil
 	}
 
-	var defines []string
+	defines := make([]string, 0, len(s.forwards))
 	for _, fwd := range s.forwards {
 		if fwd.EnvName == "" {
 			continue
@@ -750,7 +750,7 @@ func discoverDockerHostPort(containerPort int) (int, error) {
 			parts := strings.Split(strings.TrimSpace(string(out)), ":")
 			if len(parts) >= 2 {
 				port := 0
-				fmt.Sscanf(parts[len(parts)-1], "%d", &port)
+				_, _ = fmt.Sscanf(parts[len(parts)-1], "%d", &port)
 				if port > 0 {
 					return port, nil
 				}
@@ -983,7 +983,7 @@ func (m *Manager) FlutterVersion() (any, error) {
 	var version any
 	if err := json.Unmarshal(output, &version); err != nil {
 		// If it's not JSON, return as string
-		return map[string]string{"version": string(output)}, nil
+		return map[string]string{"version": string(output)}, err
 	}
 
 	return version, nil

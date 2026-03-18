@@ -124,7 +124,10 @@ func (h *Handlers) FlutterRun(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Target string `json:"target"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil && err.Error() != "EOF" {
+		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body")
+		return
+	}
 	if req.Target == "" {
 		req.Target = "lib/main.dart"
 	}
@@ -274,7 +277,7 @@ func (h *Handlers) DeviceScreenshot(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "image/png")
 	w.WriteHeader(http.StatusOK)
-	w.Write(data)
+	_, _ = w.Write(data)
 }
 
 func (h *Handlers) DeviceTap(w http.ResponseWriter, r *http.Request) {
@@ -288,7 +291,10 @@ func (h *Handlers) DeviceTap(w http.ResponseWriter, r *http.Request) {
 		Y     float64 `json:"y"`
 		Index int     `json:"index"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body")
+		return
+	}
 
 	result, err := h.sessions.DeviceTap(agentID, id, req.Label, req.Key, req.X, req.Y, req.Index)
 	if err != nil {
@@ -307,7 +313,10 @@ func (h *Handlers) DeviceSwipe(w http.ResponseWriter, r *http.Request) {
 		Direction  string `json:"direction"`
 		DurationMs int    `json:"duration_ms"`
 	}
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "validation_error", "Invalid request body")
+		return
+	}
 	if req.DurationMs == 0 {
 		req.DurationMs = 300
 	}
@@ -408,7 +417,7 @@ func (h *Handlers) DevtoolsLogs(w http.ResponseWriter, r *http.Request) {
 
 	tail := 0
 	if t := r.URL.Query().Get("tail"); t != "" {
-		fmt.Sscanf(t, "%d", &tail)
+		_, _ = fmt.Sscanf(t, "%d", &tail)
 	}
 
 	logs, err := h.sessions.GetLogs(agentID, id, tail)

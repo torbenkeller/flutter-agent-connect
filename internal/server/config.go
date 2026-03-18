@@ -127,13 +127,14 @@ func (c *Config) Validate() error {
 	allOK := true
 	for _, dep := range deps {
 		info, ok := dep.check()
-		if ok {
+		switch {
+		case ok:
 			fmt.Printf("  ✓ %-20s %s\n", dep.name, info)
-		} else if dep.required {
+		case dep.required:
 			fmt.Printf("  ✗ %-20s MISSING (required)\n", dep.name)
 			fmt.Printf("    → %s\n", dep.installMsg)
 			allOK = false
-		} else {
+		default:
 			fmt.Printf("  - %-20s not found (optional)\n", dep.name)
 			fmt.Printf("    → %s\n", dep.installMsg)
 		}

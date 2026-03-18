@@ -40,13 +40,13 @@ func ConnectVMService(wsURI string) (*VMServiceClient, error) {
 	// Discover the main isolate (retry — isolate may not be ready yet)
 	var discoverErr error
 	for i := 0; i < 5; i++ {
-		if err := client.discoverIsolate(); err == nil {
+		err := client.discoverIsolate()
+		if err == nil {
 			discoverErr = nil
 			break
-		} else {
-			discoverErr = err
-			time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
 		}
+		discoverErr = err
+		time.Sleep(time.Duration(i+1) * 500 * time.Millisecond)
 	}
 	if discoverErr != nil {
 		conn.Close()
@@ -79,8 +79,8 @@ func (c *VMServiceClient) call(method string, params map[string]any, timeout tim
 	}
 
 	// Read messages until we get our response
-	c.conn.SetReadDeadline(time.Now().Add(timeout))
-	defer c.conn.SetReadDeadline(time.Time{})
+	_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
+	defer func() { _ = c.conn.SetReadDeadline(time.Time{}) }()
 
 	for {
 		_, message, err := c.conn.ReadMessage()
@@ -169,9 +169,9 @@ func (c *VMServiceClient) CallExtension(method string, args map[string]any) (jso
 // adbSerial is optional — if provided, enables accessibility via adb as fallback.
 func (c *VMServiceClient) EnsureSemantics(adbSerial string) {
 	// Method 1: Toggle semantics debugger (works on iOS)
-	c.CallExtension("ext.flutter.showSemanticsDebugger", map[string]any{"enabled": "true"})
+	_, _ = c.CallExtension("ext.flutter.showSemanticsDebugger", map[string]any{"enabled": "true"})
 	time.Sleep(500 * time.Millisecond)
-	c.CallExtension("ext.flutter.showSemanticsDebugger", map[string]any{"enabled": "false"})
+	_, _ = c.CallExtension("ext.flutter.showSemanticsDebugger", map[string]any{"enabled": "false"})
 	time.Sleep(500 * time.Millisecond)
 
 	// Method 2: On Android, enable accessibility via adb (more reliable)
@@ -182,12 +182,12 @@ func (c *VMServiceClient) EnsureSemantics(adbSerial string) {
 			adbPath = filepath.Join(home, "Library", "Android", "sdk", "platform-tools", "adb")
 		}
 		// Enable TalkBack to force semantics generation
-		exec.Command(adbPath, "-s", adbSerial, "shell",
+		_ = exec.Command(adbPath, "-s", adbSerial, "shell",
 			"settings", "put", "secure", "enabled_accessibility_services",
 			"com.google.android.marvin.talkback/com.google.android.marvin.talkback.TalkBackService").Run()
 		time.Sleep(2 * time.Second)
 		// Disable TalkBack again (we just needed it to trigger semantics)
-		exec.Command(adbPath, "-s", adbSerial, "shell",
+		_ = exec.Command(adbPath, "-s", adbSerial, "shell",
 			"settings", "put", "secure", "enabled_accessibility_services", "").Run()
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -199,8 +199,10 @@ func (c *VMServiceClient) GetSemanticsTree() (*SemanticsNode, error) {
 
 	// If semantics not generated, enable them and retry
 	if err == nil {
-		var check struct{ Data string `json:"data"` }
-		json.Unmarshal(result, &check)
+		var check struct {
+			Data string `json:"data"`
+		}
+		_ = json.Unmarshal(result, &check)
 		if strings.Contains(check.Data, "Semantics not generated") {
 			c.EnsureSemantics(c.ADBSerial)
 			result, err = c.CallExtension("ext.flutter.debugDumpSemanticsTreeInTraversalOrder", nil)
@@ -236,9 +238,9 @@ func (c *VMServiceClient) GetSemanticsTree() (*SemanticsNode, error) {
 	return parseSemanticsText(text), nil
 }
 
-// GetWidgetTree returns the widget tree dump.
-func (c *VMServiceClient) GetWidgetTree() (string, error) {
-	result, err := c.CallExtension("ext.flutter.debugDumpApp", nil)
+// getTreeDump calls a Flutter tree-dump extension and extracts the text result.
+func (c *VMServiceClient) getTreeDump(extension string) (string, error) {
+	result, err := c.CallExtension(extension, nil)
 	if err != nil {
 		return "", err
 	}
@@ -248,7 +250,7 @@ func (c *VMServiceClient) GetWidgetTree() (string, error) {
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
-		return string(result), nil
+		return string(result), err
 	}
 	if resp.Data != "" {
 		return resp.Data, nil
@@ -256,24 +258,14 @@ func (c *VMServiceClient) GetWidgetTree() (string, error) {
 	return resp.Value, nil
 }
 
+// GetWidgetTree returns the widget tree dump.
+func (c *VMServiceClient) GetWidgetTree() (string, error) {
+	return c.getTreeDump("ext.flutter.debugDumpApp")
+}
+
 // GetRenderTree returns the render tree dump.
 func (c *VMServiceClient) GetRenderTree() (string, error) {
-	result, err := c.CallExtension("ext.flutter.debugDumpRenderTree", nil)
-	if err != nil {
-		return "", err
-	}
-
-	var resp struct {
-		Data  string `json:"data"`
-		Value string `json:"value"`
-	}
-	if err := json.Unmarshal(result, &resp); err != nil {
-		return string(result), nil
-	}
-	if resp.Data != "" {
-		return resp.Data, nil
-	}
-	return resp.Value, nil
+	return c.getTreeDump("ext.flutter.debugDumpRenderTree")
 }
 
 // ToggleDebugFlag toggles a debug flag and returns the new state.
@@ -289,7 +281,7 @@ func (c *VMServiceClient) ToggleDebugFlag(extension string) (bool, error) {
 	var resp struct {
 		Enabled string `json:"enabled"`
 	}
-	json.Unmarshal(result, &resp)
+	_ = json.Unmarshal(result, &resp)
 
 	// Toggle: if currently "true" → set "false", and vice versa
 	newState := "true"
@@ -303,7 +295,7 @@ func (c *VMServiceClient) ToggleDebugFlag(extension string) (bool, error) {
 		return false, err
 	}
 
-	json.Unmarshal(result, &resp)
+	_ = json.Unmarshal(result, &resp)
 	return resp.Enabled == "true", nil
 }
 
@@ -331,7 +323,7 @@ type Rect struct {
 	Bottom float64 `json:"bottom"`
 }
 
-func (r *Rect) Center() (float64, float64) {
+func (r *Rect) Center() (cx, cy float64) {
 	return (r.Left + r.Right) / 2, (r.Top + r.Bottom) / 2
 }
 
@@ -345,7 +337,7 @@ func (n *SemanticsNode) FindByLabel(label string, index int) *SemanticsNode {
 }
 
 func (n *SemanticsNode) findByLabel(label string, matches *[]*SemanticsNode) {
-	if n.Label != "" && containsIgnoreCase(n.Label, label) {
+	if n.Label != "" && strings.Contains(strings.ToLower(n.Label), strings.ToLower(label)) {
 		*matches = append(*matches, n)
 	}
 	for _, child := range n.Children {
@@ -363,7 +355,7 @@ func (n *SemanticsNode) FindByKey(key string, index int) *SemanticsNode {
 }
 
 func (n *SemanticsNode) findByKey(key string, matches *[]*SemanticsNode) {
-	if containsIgnoreCase(n.Value, key) || containsIgnoreCase(n.Label, key) {
+	if strings.Contains(strings.ToLower(n.Value), strings.ToLower(key)) || strings.Contains(strings.ToLower(n.Label), strings.ToLower(key)) {
 		*matches = append(*matches, n)
 	}
 	for _, child := range n.Children {
@@ -384,40 +376,6 @@ func (n *SemanticsNode) collectLabels(labels *[]string) {
 	for _, child := range n.Children {
 		child.collectLabels(labels)
 	}
-}
-
-func containsIgnoreCase(s, substr string) bool {
-	if len(s) == 0 || len(substr) == 0 {
-		return false
-	}
-	sl := toLower(s)
-	sl2 := toLower(substr)
-	for i := 0; i <= len(sl)-len(sl2); i++ {
-		if sl[i:i+len(sl2)] == sl2 {
-			return true
-		}
-	}
-	return false
-}
-
-func toLower(s string) string {
-	b := make([]byte, len(s))
-	for i := range s {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			b[i] = c + 32
-		} else {
-			b[i] = c
-		}
-	}
-	return string(b)
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // parseSemanticsText is in semantics_parser.go

@@ -58,7 +58,7 @@ func TestParseMountInfo(t *testing.T) {
 	}
 	defer os.Remove(tmpFile.Name())
 
-	tmpFile.WriteString(sampleMountInfo + "\n")
+	_, _ = tmpFile.WriteString(sampleMountInfo + "\n")
 	tmpFile.Close()
 
 	// We can't easily test resolveViaMountInfo without being in a container,
@@ -68,7 +68,7 @@ func TestParseMountInfo(t *testing.T) {
 		t.Fatal("not enough fields")
 	}
 
-	root := fields[3]      // /Users/torben/project
+	root := fields[3]       // /Users/torben/project
 	mountPoint := fields[4] // /workspaces/project
 
 	if root != "/Users/torben/project" {

@@ -101,7 +101,7 @@ func resolveViaMountInfo(containerPath string) (string, error) {
 		}
 
 		// Fields: mount_id parent_id major:minor root mount_point ...
-		root := fields[3]      // host-side path (source)
+		root := fields[3]       // host-side path (source)
 		mountPoint := fields[4] // container-side path (target)
 
 		// Skip non-bind mounts (proc, sys, dev, etc.)

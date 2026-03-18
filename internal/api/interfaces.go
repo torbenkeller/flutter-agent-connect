@@ -25,7 +25,7 @@ type SessionService interface {
 	Screenshot(agentID, sessionID string) ([]byte, error)
 	DeviceTap(agentID, sessionID, label, key string, x, y float64, index int) (*session.TapResult, error)
 	DeviceSwipe(agentID, sessionID, direction string, durationMs int) error
-	DeviceType(agentID, sessionID, text string, clear, enter bool) error
+	DeviceType(agentID, sessionID, text string, clearField, enter bool) error
 
 	InspectWidgets(agentID, sessionID string) (string, error)
 	InspectRender(agentID, sessionID string) (string, error)

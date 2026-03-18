@@ -2,7 +2,6 @@ package device
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -170,7 +169,7 @@ func (a *AndroidEmulator) Boot(avdName string) (string, error) {
 	// Wait for the emulator to appear in adb devices
 	serial, err := a.waitForBoot(avdName, 120*time.Second)
 	if err != nil {
-		cmd.Process.Kill()
+		_ = cmd.Process.Kill()
 		return "", err
 	}
 
@@ -234,7 +233,7 @@ func (a *AndroidEmulator) Tap(serial string, x, y int) error {
 }
 
 // TypeText types text into the focused field.
-func (a *AndroidEmulator) TypeText(serial string, text string) error {
+func (a *AndroidEmulator) TypeText(serial, text string) error {
 	// adb shell input text has issues with special chars, use base64 broadcast instead
 	// For simple text, input text works
 	escaped := strings.ReplaceAll(text, " ", "%s")
@@ -318,14 +317,4 @@ func (a *AndroidEmulator) FlutterDeviceID(serial string) string {
 func (a *AndroidEmulator) IsAvailable() bool {
 	_, err := os.Stat(a.emulatorBin())
 	return err == nil
-}
-
-// stub for JSON output compatibility
-type avdListOutput struct {
-	Name string `json:"name"`
-}
-
-func init() {
-	// Ensure json import is used
-	_ = json.Marshal
 }

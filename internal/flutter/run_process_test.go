@@ -51,14 +51,14 @@ func TestParseDebugPortEvent(t *testing.T) {
 	}
 
 	var evt Event
-	json.Unmarshal(messages[0], &evt)
+	_ = json.Unmarshal(messages[0], &evt)
 
 	if evt.Event != "app.debugPort" {
 		t.Errorf("expected 'app.debugPort', got '%s'", evt.Event)
 	}
 
 	var params appDebugPortParams
-	json.Unmarshal(evt.Params, &params)
+	_ = json.Unmarshal(evt.Params, &params)
 
 	if params.WsURI != "ws://127.0.0.1:52981/Agp3e_ySUH0=/ws" {
 		t.Errorf("unexpected wsUri: %s", params.WsURI)
@@ -72,17 +72,17 @@ func TestParseAppLogEvent(t *testing.T) {
 	line := `[{"event":"app.log","params":{"appId":"abc-123","log":"flutter: Hello World"}}]`
 
 	var messages []json.RawMessage
-	json.Unmarshal([]byte(line), &messages)
+	_ = json.Unmarshal([]byte(line), &messages)
 
 	var evt Event
-	json.Unmarshal(messages[0], &evt)
+	_ = json.Unmarshal(messages[0], &evt)
 
 	if evt.Event != "app.log" {
 		t.Errorf("expected 'app.log', got '%s'", evt.Event)
 	}
 
 	var params appLogParams
-	json.Unmarshal(evt.Params, &params)
+	_ = json.Unmarshal(evt.Params, &params)
 
 	if params.Log != "flutter: Hello World" {
 		t.Errorf("unexpected log: %s", params.Log)
@@ -93,7 +93,7 @@ func TestParseResponse(t *testing.T) {
 	line := `[{"id":1,"result":{"code":0,"message":"Success"}}]`
 
 	var messages []json.RawMessage
-	json.Unmarshal([]byte(line), &messages)
+	_ = json.Unmarshal([]byte(line), &messages)
 
 	var resp Response
 	if err := json.Unmarshal(messages[0], &resp); err != nil {
@@ -151,7 +151,7 @@ func TestBuildCommand(t *testing.T) {
 
 	// Verify structure
 	var cmdMap map[string]any
-	json.Unmarshal(parsed[0], &cmdMap)
+	_ = json.Unmarshal(parsed[0], &cmdMap)
 
 	if cmdMap["method"] != "app.restart" {
 		t.Errorf("expected method 'app.restart', got '%v'", cmdMap["method"])

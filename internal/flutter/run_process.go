@@ -26,7 +26,7 @@ type RunProcess struct {
 	// Channels for coordination
 	startedCh chan struct{} // closed when app.started is received
 	stoppedCh chan struct{} // closed when process exits
-	err       error        // set if process exits with error
+	err       error         // set if process exits with error
 
 	// Log buffer
 	logMu sync.Mutex
@@ -186,7 +186,10 @@ func (p *RunProcess) handleEvent(evt Event) {
 	switch evt.Event {
 	case "app.start":
 		var params appStartParams
-		json.Unmarshal(evt.Params, &params)
+		if err := json.Unmarshal(evt.Params, &params); err != nil {
+			log.Warn().Err(err).Msg("Failed to parse app.start params")
+			return
+		}
 		p.mu.Lock()
 		p.appID = params.AppID
 		p.mu.Unlock()
@@ -194,7 +197,10 @@ func (p *RunProcess) handleEvent(evt Event) {
 
 	case "app.debugPort":
 		var params appDebugPortParams
-		json.Unmarshal(evt.Params, &params)
+		if err := json.Unmarshal(evt.Params, &params); err != nil {
+			log.Warn().Err(err).Msg("Failed to parse app.debugPort params")
+			return
+		}
 		p.mu.Lock()
 		p.vmServiceURI = params.WsURI
 		p.mu.Unlock()
@@ -209,7 +215,10 @@ func (p *RunProcess) handleEvent(evt Event) {
 
 	case "app.log":
 		var params appLogParams
-		json.Unmarshal(evt.Params, &params)
+		if err := json.Unmarshal(evt.Params, &params); err != nil {
+			log.Warn().Err(err).Msg("Failed to parse app.log params")
+			return
+		}
 		p.addLog(params.Log)
 
 	case "app.stop":
@@ -324,7 +333,7 @@ func (p *RunProcess) Stop() error {
 // Kill forcefully kills the process.
 func (p *RunProcess) Kill() {
 	if p.cmd.Process != nil {
-		p.cmd.Process.Kill()
+		_ = p.cmd.Process.Kill()
 	}
 }
 

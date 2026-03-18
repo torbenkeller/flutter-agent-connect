@@ -1,8 +1,10 @@
 BINARY_NAME=fac
 BUILD_DIR=bin
 GO=go
+GOLANGCI_LINT_VERSION=v1.64.8
+GOLANGCI_LINT=$(shell which golangci-lint 2>/dev/null || echo $(shell $(GO) env GOPATH)/bin/golangci-lint)
 
-.PHONY: build build-linux build-all test lint clean run-server
+.PHONY: build build-linux build-all test lint lint-fix clean run-server
 
 ## Build for current platform
 build:
@@ -18,11 +20,18 @@ build-all: build build-linux
 
 ## Run tests
 test:
-	$(GO) test ./... -v
+	$(GO) test ./...
 
-## Run linter
-lint:
-	$(GO) vet ./...
+## Run linter (installs golangci-lint if missing)
+lint: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run ./...
+
+## Run linter and auto-fix where possible
+lint-fix: $(GOLANGCI_LINT)
+	$(GOLANGCI_LINT) run --fix ./...
+
+$(GOLANGCI_LINT):
+	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)
 
 ## Clean build artifacts
 clean:

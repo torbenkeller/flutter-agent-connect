@@ -74,12 +74,12 @@ func (p *mockDevicePool) Screenshot(udid string, platform models.PlatformType) (
 	return p.screenshot, p.screenshotE
 }
 
-func (p *mockDevicePool) DeviceInfo(udid string) (int, int, error) {
+func (p *mockDevicePool) DeviceInfo(_ string) (width, height int, err error) {
 	return p.deviceInfoW, p.deviceInfoH, p.deviceInfoE
 }
 
 func (p *mockDevicePool) List() []models.Device {
-	var result []models.Device
+	result := make([]models.Device, 0, len(p.devices))
 	for _, d := range p.devices {
 		result = append(result, d.Device)
 	}
@@ -119,8 +119,8 @@ func (i *mockInteractor) Tap(deviceID string, x, y int) error {
 	return i.tapErr
 }
 
-func (i *mockInteractor) TypeText(deviceID, text string, clear, enter bool) error {
-	i.typeCalls = append(i.typeCalls, typeCall{deviceID, text, clear, enter})
+func (i *mockInteractor) TypeText(deviceID, text string, clearField, enter bool) error {
+	i.typeCalls = append(i.typeCalls, typeCall{deviceID, text, clearField, enter})
 	return i.typeErr
 }
 
@@ -144,31 +144,29 @@ type mockFlutterProcess struct {
 	stopErr    error
 }
 
-func newMockFlutterProcess(started bool) *mockFlutterProcess {
+func newMockFlutterProcess() *mockFlutterProcess {
 	p := &mockFlutterProcess{
 		appID:     "mock-app-id",
 		wsURI:     "ws://127.0.0.1:12345/mock/ws",
-		running:   started,
+		running:   true,
 		startedCh: make(chan struct{}),
 		stoppedCh: make(chan struct{}),
 	}
-	if started {
-		close(p.startedCh)
-	}
+	close(p.startedCh)
 	return p
 }
 
-func (p *mockFlutterProcess) AppID() string                { return p.appID }
-func (p *mockFlutterProcess) VMServiceURI() string         { return p.wsURI }
-func (p *mockFlutterProcess) IsRunning() bool              { return p.running }
-func (p *mockFlutterProcess) HotReload() error             { return p.reloadErr }
-func (p *mockFlutterProcess) HotRestart() error            { return p.restartErr }
-func (p *mockFlutterProcess) Stop() error                  { return p.stopErr }
-func (p *mockFlutterProcess) Kill()                        {}
+func (p *mockFlutterProcess) AppID() string                    { return p.appID }
+func (p *mockFlutterProcess) VMServiceURI() string             { return p.wsURI }
+func (p *mockFlutterProcess) IsRunning() bool                  { return p.running }
+func (p *mockFlutterProcess) HotReload() error                 { return p.reloadErr }
+func (p *mockFlutterProcess) HotRestart() error                { return p.restartErr }
+func (p *mockFlutterProcess) Stop() error                      { return p.stopErr }
+func (p *mockFlutterProcess) Kill()                            {}
 func (p *mockFlutterProcess) Logs(last int) []flutter.LogEntry { return p.logs }
-func (p *mockFlutterProcess) Started() <-chan struct{}      { return p.startedCh }
-func (p *mockFlutterProcess) Stopped() <-chan struct{}      { return p.stoppedCh }
-func (p *mockFlutterProcess) Err() error                   { return p.err }
+func (p *mockFlutterProcess) Started() <-chan struct{}         { return p.startedCh }
+func (p *mockFlutterProcess) Stopped() <-chan struct{}         { return p.stoppedCh }
+func (p *mockFlutterProcess) Err() error                       { return p.err }
 
 // --- Mock VMService ---
 
