@@ -483,12 +483,50 @@ func (c *Client) TypeText(session, text string, clear, enter bool) error {
 
 // Inspection
 func (c *Client) Inspect(session, treeType string) (any, error) {
-	return nil, fmt.Errorf("not implemented")
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return nil, fmt.Errorf("no active session")
+	}
+
+	resp, err := c.get("/sessions/" + sessionID + "/devtools/" + treeType)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, readError(resp)
+	}
+
+	var result any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 // Debug
 func (c *Client) ToggleDebug(session, flag string) (bool, error) {
-	return false, fmt.Errorf("not implemented")
+	sessionID := c.resolveSession(session)
+	if sessionID == "" {
+		return false, fmt.Errorf("no active session")
+	}
+
+	resp, err := c.post("/sessions/"+sessionID+"/devtools/"+flag, nil)
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, readError(resp)
+	}
+
+	var result struct {
+		Enabled bool `json:"enabled"`
+	}
+	json.NewDecoder(resp.Body).Decode(&result)
+	return result.Enabled, nil
 }
 
 // Port Forwarding

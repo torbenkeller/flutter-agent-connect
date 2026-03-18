@@ -337,22 +337,62 @@ func (h *Handlers) DeviceType(w http.ResponseWriter, r *http.Request) {
 // DevTools inspection & debugging handlers
 
 func (h *Handlers) DevtoolsWidgets(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	tree, err := h.sessions.InspectWidgets(agentID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"type": "widgets", "data": tree})
 }
 func (h *Handlers) DevtoolsRender(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	tree, err := h.sessions.InspectRender(agentID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"type": "render", "data": tree})
 }
 func (h *Handlers) DevtoolsSemantics(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	tree, err := h.sessions.InspectSemantics(agentID, id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"type": "semantics", "data": tree})
 }
 func (h *Handlers) DevtoolsPerformance(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	h.toggleDebug(w, r, "performance")
 }
 func (h *Handlers) DevtoolsPaint(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	h.toggleDebug(w, r, "paint")
 }
 func (h *Handlers) DevtoolsRepaint(w http.ResponseWriter, r *http.Request) {
-	writeError(w, http.StatusNotImplemented, "not_implemented", "TODO")
+	h.toggleDebug(w, r, "repaint")
+}
+
+func (h *Handlers) toggleDebug(w http.ResponseWriter, r *http.Request, flag string) {
+	agentID := r.Header.Get("X-Agent-ID")
+	id := r.PathValue("id")
+
+	enabled, err := h.sessions.ToggleDebugFlag(agentID, id, flag)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{"flag": flag, "enabled": enabled})
 }
 func (h *Handlers) DevtoolsLogs(w http.ResponseWriter, r *http.Request) {
 	agentID := r.Header.Get("X-Agent-ID")

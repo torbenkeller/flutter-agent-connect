@@ -244,10 +244,14 @@ func (c *VMServiceClient) GetWidgetTree() (string, error) {
 	}
 
 	var resp struct {
+		Data  string `json:"data"`
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
 		return string(result), nil
+	}
+	if resp.Data != "" {
+		return resp.Data, nil
 	}
 	return resp.Value, nil
 }
@@ -260,28 +264,47 @@ func (c *VMServiceClient) GetRenderTree() (string, error) {
 	}
 
 	var resp struct {
+		Data  string `json:"data"`
 		Value string `json:"value"`
 	}
 	if err := json.Unmarshal(result, &resp); err != nil {
 		return string(result), nil
 	}
+	if resp.Data != "" {
+		return resp.Data, nil
+	}
 	return resp.Value, nil
 }
 
 // ToggleDebugFlag toggles a debug flag and returns the new state.
+// Flutter debug extensions expect an "enabled" parameter as a string.
 func (c *VMServiceClient) ToggleDebugFlag(extension string) (bool, error) {
+	// First, get current state by calling without enabled param
 	result, err := c.CallExtension(extension, nil)
 	if err != nil {
 		return false, err
 	}
 
+	// Parse current state
 	var resp struct {
-		Enabled bool `json:"enabled"`
+		Enabled string `json:"enabled"`
 	}
-	if err := json.Unmarshal(result, &resp); err != nil {
-		return true, nil
+	json.Unmarshal(result, &resp)
+
+	// Toggle: if currently "true" → set "false", and vice versa
+	newState := "true"
+	if resp.Enabled == "true" {
+		newState = "false"
 	}
-	return resp.Enabled, nil
+
+	// Set the new state
+	result, err = c.CallExtension(extension, map[string]any{"enabled": newState})
+	if err != nil {
+		return false, err
+	}
+
+	json.Unmarshal(result, &resp)
+	return resp.Enabled == "true", nil
 }
 
 // Close closes the WebSocket connection.

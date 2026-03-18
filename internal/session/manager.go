@@ -745,6 +745,89 @@ func detectContainerViaDocker() (string, error) {
 	return containers[0], nil
 }
 
+// InspectWidgets returns the widget tree dump via the VM Service.
+func (m *Manager) InspectWidgets(agentID, sessionID string) (string, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return "", &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	vmClient, err := m.getVMServiceClient(s)
+	if err != nil {
+		return "", err
+	}
+
+	return vmClient.GetWidgetTree()
+}
+
+// InspectRender returns the render tree dump via the VM Service.
+func (m *Manager) InspectRender(agentID, sessionID string) (string, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return "", &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	vmClient, err := m.getVMServiceClient(s)
+	if err != nil {
+		return "", err
+	}
+
+	return vmClient.GetRenderTree()
+}
+
+// InspectSemantics returns the semantics tree via the VM Service.
+func (m *Manager) InspectSemantics(agentID, sessionID string) (*flutter.SemanticsNode, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	vmClient, err := m.getVMServiceClient(s)
+	if err != nil {
+		return nil, err
+	}
+
+	return vmClient.GetSemanticsTree()
+}
+
+// ToggleDebugFlag toggles a debug flag via the VM Service.
+func (m *Manager) ToggleDebugFlag(agentID, sessionID, flag string) (bool, error) {
+	m.mu.RLock()
+	s, ok := m.sessions[sessionID]
+	if !ok || s.AgentID != agentID {
+		m.mu.RUnlock()
+		return false, &models.ErrNotFound{Resource: "session", ID: sessionID}
+	}
+	m.mu.RUnlock()
+
+	vmClient, err := m.getVMServiceClient(s)
+	if err != nil {
+		return false, err
+	}
+
+	extensionMap := map[string]string{
+		"paint":       "ext.flutter.debugPaint",
+		"repaint":     "ext.flutter.repaintRainbow",
+		"performance": "ext.flutter.showPerformanceOverlay",
+	}
+
+	ext, ok := extensionMap[flag]
+	if !ok {
+		return false, &models.ErrValidation{Message: fmt.Sprintf("unknown debug flag: %s", flag)}
+	}
+
+	return vmClient.ToggleDebugFlag(ext)
+}
+
 // GetLogs returns the collected logs for a session. If tail > 0, only the last N lines.
 func (m *Manager) GetLogs(agentID, sessionID string, tail int) ([]string, error) {
 	m.mu.RLock()
