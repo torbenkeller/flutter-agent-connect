@@ -22,6 +22,18 @@ var sessionCreateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		workDir, _ := cmd.Flags().GetString("work-dir")
 
+		// Resolve work-dir to host path (handles container→host translation)
+		if workDir != "" {
+			resolved, err := client.ResolveWorkDir(workDir)
+			if err != nil {
+				return fmt.Errorf("failed to resolve work directory: %w", err)
+			}
+			if resolved != workDir {
+				fmt.Printf("Resolved work-dir: %s → %s\n", workDir, resolved)
+			}
+			workDir = resolved
+		}
+
 		c, err := client.Load()
 		if err != nil {
 			return fmt.Errorf("not connected. Run 'fac connect' first: %w", err)
