@@ -336,13 +336,14 @@ func (m *Manager) HotReload(agentID, sessionID string) error {
 		m.mu.RUnlock()
 		return &models.ErrNotFound{Resource: "session", ID: sessionID}
 	}
+	proc := s.flutterProcess
 	m.mu.RUnlock()
 
-	if s.flutterProcess == nil || !s.flutterProcess.IsRunning() {
+	if proc == nil || !proc.IsRunning() {
 		return &models.ErrConflict{Message: "No running app. Use 'fac app start' first"}
 	}
 
-	return s.flutterProcess.HotReload()
+	return proc.HotReload()
 }
 
 // HotRestart triggers a full restart on the session's Flutter app.
@@ -353,13 +354,14 @@ func (m *Manager) HotRestart(agentID, sessionID string) error {
 		m.mu.RUnlock()
 		return &models.ErrNotFound{Resource: "session", ID: sessionID}
 	}
+	proc := s.flutterProcess
 	m.mu.RUnlock()
 
-	if s.flutterProcess == nil || !s.flutterProcess.IsRunning() {
+	if proc == nil || !proc.IsRunning() {
 		return &models.ErrConflict{Message: "No running app. Use 'fac app start' first"}
 	}
 
-	return s.flutterProcess.HotRestart()
+	return proc.HotRestart()
 }
 
 // StopApp stops the Flutter app but keeps the session and simulator alive.
@@ -910,13 +912,14 @@ func (m *Manager) GetLogs(agentID, sessionID string, tail int) ([]string, error)
 		m.mu.RUnlock()
 		return nil, &models.ErrNotFound{Resource: "session", ID: sessionID}
 	}
+	proc := s.flutterProcess
 	m.mu.RUnlock()
 
-	if s.flutterProcess == nil {
+	if proc == nil {
 		return nil, &models.ErrConflict{Message: "No app running"}
 	}
 
-	entries := s.flutterProcess.Logs(tail)
+	entries := proc.Logs(tail)
 	lines := make([]string, len(entries))
 	for i, e := range entries {
 		lines[i] = e.Message
