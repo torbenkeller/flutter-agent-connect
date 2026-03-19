@@ -22,8 +22,9 @@ type Client struct {
 }
 
 type ConnectConfig struct {
-	ServerURL string
-	AgentID   string
+	ServerURL   string
+	AgentID     string
+	ContainerID string
 }
 
 // Connect establishes a connection to the FAC server.
@@ -44,7 +45,7 @@ func Connect(cfg ConnectConfig) (*Client, error) {
 	}
 
 	// Register agent
-	body, _ := json.Marshal(map[string]string{"id": cfg.AgentID})
+	body, _ := json.Marshal(map[string]string{"id": cfg.AgentID, "container_id": cfg.ContainerID})
 	resp, err := c.post("/agents", bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("failed to register agent: %w", err)

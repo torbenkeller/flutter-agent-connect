@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 
 	"github.com/spf13/cobra"
 	"github.com/torbenkeller/flutter-agent-connect/internal/client"
@@ -22,20 +23,16 @@ var sessionCreateCmd = &cobra.Command{
 		name, _ := cmd.Flags().GetString("name")
 		workDir, _ := cmd.Flags().GetString("work-dir")
 
-		// Default to current directory if no work-dir specified
+		// Resolve to absolute path (within container or host, wherever we are).
+		// The server handles container→host translation using Docker inspect.
 		if workDir == "" {
 			workDir = "."
 		}
-
-		// Resolve work-dir to host path (handles container→host translation)
-		resolved, err := client.ResolveWorkDir(workDir)
+		absPath, err := filepath.Abs(workDir)
 		if err != nil {
-			return fmt.Errorf("failed to resolve work directory: %w", err)
+			return fmt.Errorf("failed to resolve path: %w", err)
 		}
-		if resolved != workDir {
-			fmt.Printf("Resolved work-dir: %s → %s\n", workDir, resolved)
-		}
-		workDir = resolved
+		workDir = absPath
 
 		c, err := client.Load()
 		if err != nil {

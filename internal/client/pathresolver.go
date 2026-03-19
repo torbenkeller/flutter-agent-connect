@@ -21,7 +21,7 @@ func ResolveWorkDir(path string) (string, error) {
 	}
 
 	// Check if we're inside a Docker container
-	if !isInContainer() {
+	if !IsInContainer() {
 		// Running directly on host — path is already correct
 		return absPath, nil
 	}
@@ -36,8 +36,8 @@ func ResolveWorkDir(path string) (string, error) {
 	return hostPath, nil
 }
 
-// isInContainer checks if we're running inside a Docker container.
-func isInContainer() bool {
+// IsInContainer checks if we're running inside a Docker container.
+func IsInContainer() bool {
 	// Method 1: Check /.dockerenv
 	if _, err := os.Stat("/.dockerenv"); err == nil {
 		return true

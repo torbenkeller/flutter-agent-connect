@@ -25,6 +25,7 @@ type Session struct {
 }
 
 type Agent struct {
-	ID        string    `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
+	ID          string    `json:"id"`
+	ContainerID string    `json:"container_id,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
 }

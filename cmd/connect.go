@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/torbenkeller/flutter-agent-connect/internal/client"
@@ -20,9 +21,16 @@ var connectCmd = &cobra.Command{
 
 		agentID, _ := cmd.Flags().GetString("agent")
 
+		// Auto-detect container ID if running inside Docker
+		containerID := ""
+		if client.IsInContainer() {
+			containerID, _ = os.Hostname()
+		}
+
 		cfg := client.ConnectConfig{
-			ServerURL: serverURL,
-			AgentID:   agentID,
+			ServerURL:   serverURL,
+			AgentID:     agentID,
+			ContainerID: containerID,
 		}
 
 		c, err := client.Connect(cfg)

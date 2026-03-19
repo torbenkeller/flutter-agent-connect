@@ -35,7 +35,7 @@ type mockSessionService struct {
 	err            error
 }
 
-func (m *mockSessionService) RegisterAgent(agentID string) *models.Agent {
+func (m *mockSessionService) RegisterAgent(agentID, containerID string) *models.Agent {
 	if m.agent != nil {
 		return m.agent
 	}

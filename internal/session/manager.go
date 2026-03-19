@@ -19,14 +19,15 @@ import (
 
 // Manager handles session lifecycle.
 type Manager struct {
-	mu           sync.RWMutex
-	sessions     map[string]*Session
-	agents       map[string]*models.Agent
-	pool         DevicePool
-	interactors  map[models.PlatformType]Interactor
-	flutterSDK   string
-	startFlutter FlutterStarter
-	connectVM    VMServiceConnector
+	mu              sync.RWMutex
+	sessions        map[string]*Session
+	agents          map[string]*models.Agent
+	pool            DevicePool
+	interactors     map[models.PlatformType]Interactor
+	flutterSDK      string
+	startFlutter    FlutterStarter
+	connectVM       VMServiceConnector
+	dockerInspector DockerInspector
 }
 
 // Option configures a Manager.
@@ -45,6 +46,11 @@ func WithVMServiceConnector(c VMServiceConnector) Option {
 // WithInteractors overrides the default device interactors.
 func WithInteractors(i map[models.PlatformType]Interactor) Option {
 	return func(m *Manager) { m.interactors = i }
+}
+
+// WithDockerInspector overrides the default Docker inspector.
+func WithDockerInspector(d DockerInspector) Option {
+	return func(m *Manager) { m.dockerInspector = d }
 }
 
 // PortForward represents a forwarded port with its dart-define mapping.
@@ -78,6 +84,7 @@ func NewManager(pool DevicePool, flutterSDK string, opts ...Option) *Manager {
 			models.PlatformIOS:     interaction.NewIOSInteraction(),
 			models.PlatformAndroid: interaction.NewAndroidInteraction(),
 		},
+		dockerInspector: &dockerCLIInspector{},
 	}
 	for _, opt := range opts {
 		opt(m)
@@ -100,18 +107,21 @@ func defaultVMServiceConnector(wsURI, adbSerial string) (VMService, error) {
 	return client, nil
 }
 
-// RegisterAgent registers a new agent.
-func (m *Manager) RegisterAgent(agentID string) *models.Agent {
+// RegisterAgent registers a new agent. If the agent already exists,
+// it updates the container ID (which may change on container restart).
+func (m *Manager) RegisterAgent(agentID, containerID string) *models.Agent {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	if a, ok := m.agents[agentID]; ok {
+		a.ContainerID = containerID
 		return a
 	}
 
 	a := &models.Agent{
-		ID:        agentID,
-		CreatedAt: time.Now(),
+		ID:          agentID,
+		ContainerID: containerID,
+		CreatedAt:   time.Now(),
 	}
 	m.agents[agentID] = a
 	return a
@@ -119,6 +129,19 @@ func (m *Manager) RegisterAgent(agentID string) *models.Agent {
 
 // CreateSession creates a new session with a fresh simulator for the agent.
 func (m *Manager) CreateSession(agentID string, platform models.PlatformType, deviceType, name, workDir string) (*models.Session, error) {
+	// Resolve container path to host path if agent is in a container
+	m.mu.RLock()
+	agent := m.agents[agentID]
+	m.mu.RUnlock()
+
+	if agent != nil && agent.ContainerID != "" && workDir != "" {
+		resolved, err := resolveContainerPath(m.dockerInspector, agent.ContainerID, workDir)
+		if err != nil {
+			return nil, fmt.Errorf("failed to resolve work directory: %w", err)
+		}
+		workDir = resolved
+	}
+
 	id := uuid.New().String()[:8]
 
 	// Use session name for simulator name, or fall back to ID

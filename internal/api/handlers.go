@@ -29,14 +29,15 @@ func (h *Handlers) ListDevices(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handlers) RegisterAgent(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		ID string `json:"id"`
+		ID          string `json:"id"`
+		ContainerID string `json:"container_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
 		writeError(w, http.StatusBadRequest, "validation_error", "Missing required field: id")
 		return
 	}
 
-	agent := h.sessions.RegisterAgent(req.ID)
+	agent := h.sessions.RegisterAgent(req.ID, req.ContainerID)
 	writeJSON(w, http.StatusCreated, agent)
 }
 

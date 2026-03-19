@@ -8,7 +8,7 @@ import (
 
 // SessionService defines what the API handlers need from the session layer.
 type SessionService interface {
-	RegisterAgent(agentID string) *models.Agent
+	RegisterAgent(agentID, containerID string) *models.Agent
 	CreateSession(agentID string, platform models.PlatformType, deviceType, name, workDir string) (*models.Session, error)
 	ListSessions(agentID string) []*models.Session
 	GetSession(agentID, sessionID string) (*models.Session, error)

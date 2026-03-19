@@ -25,19 +25,19 @@ func newTestManagerWithPool(pool *mockDevicePool, opts ...Option) *Manager {
 func TestRegisterAgent(t *testing.T) {
 	m := newTestManager()
 
-	a1 := m.RegisterAgent("agent-1")
+	a1 := m.RegisterAgent("agent-1", "")
 	if a1.ID != "agent-1" {
 		t.Errorf("expected agent ID 'agent-1', got '%s'", a1.ID)
 	}
 
 	// Registering same agent again returns same instance
-	a2 := m.RegisterAgent("agent-1")
+	a2 := m.RegisterAgent("agent-1", "")
 	if a1 != a2 {
 		t.Error("expected same agent instance on re-register")
 	}
 
 	// Different agent
-	a3 := m.RegisterAgent("agent-2")
+	a3 := m.RegisterAgent("agent-2", "")
 	if a3.ID != "agent-2" {
 		t.Errorf("expected agent ID 'agent-2', got '%s'", a3.ID)
 	}
@@ -47,8 +47,8 @@ func TestRegisterAgent(t *testing.T) {
 
 func TestListSessionsScoping(t *testing.T) {
 	m := newTestManager()
-	m.RegisterAgent("agent-1")
-	m.RegisterAgent("agent-2")
+	m.RegisterAgent("agent-1", "")
+	m.RegisterAgent("agent-2", "")
 
 	m.mu.Lock()
 	m.sessions["s1"] = &Session{

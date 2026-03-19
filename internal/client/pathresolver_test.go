@@ -7,14 +7,14 @@ import (
 
 func TestIsInContainer_OnMac(t *testing.T) {
 	// On macOS, we should NOT be in a container
-	if isInContainer() {
+	if IsInContainer() {
 		t.Skip("Running in a container, skipping host-side test")
 	}
 }
 
 func TestResolveWorkDir_OnHost(t *testing.T) {
 	// On the host, paths should pass through unchanged (just resolved to absolute)
-	if isInContainer() {
+	if IsInContainer() {
 		t.Skip("Running in a container")
 	}
 
@@ -31,7 +31,7 @@ func TestResolveWorkDir_OnHost(t *testing.T) {
 }
 
 func TestResolveWorkDir_AbsolutePath(t *testing.T) {
-	if isInContainer() {
+	if IsInContainer() {
 		t.Skip("Running in a container")
 	}
 
