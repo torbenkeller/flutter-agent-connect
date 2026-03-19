@@ -2,6 +2,7 @@ package flutter
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,29 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/rs/zerolog/log"
 )
+
+// VMServiceError represents a typed error from the Dart VM Service.
+type VMServiceError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+func (e *VMServiceError) Error() string {
+	return fmt.Sprintf("VM Service error %d: %s", e.Code, e.Message)
+}
+
+// IsTransient returns true if the error represents a temporary condition
+// that may resolve if the request is retried after a brief delay.
+func (e *VMServiceError) IsTransient() bool {
+	switch e.Code {
+	case 105: // Isolate must be runnable — still starting up
+		return true
+	case 108: // Isolate is reloading — hot reload in progress
+		return true
+	default:
+		return false
+	}
+}
 
 // VMServiceClient connects to the Dart VM Service via WebSocket.
 type VMServiceClient struct {
@@ -116,6 +140,10 @@ func (c *VMServiceClient) call(method string, params map[string]any, timeout tim
 
 		// Found our response
 		if errRaw, hasErr := raw["error"]; hasErr {
+			var vmErr VMServiceError
+			if err := json.Unmarshal(errRaw, &vmErr); err == nil && vmErr.Message != "" {
+				return nil, &vmErr
+			}
 			return nil, fmt.Errorf("VM Service error: %s", string(errRaw))
 		}
 
@@ -153,6 +181,7 @@ func (c *VMServiceClient) discoverIsolate() error {
 }
 
 // CallExtension calls a Flutter service extension.
+// Automatically retries on transient VM Service errors (e.g. isolate reloading).
 func (c *VMServiceClient) CallExtension(method string, args map[string]any) (json.RawMessage, error) {
 	params := map[string]any{
 		"isolateId": c.isolateID,
@@ -161,7 +190,25 @@ func (c *VMServiceClient) CallExtension(method string, args map[string]any) (jso
 		params[k] = v
 	}
 
-	return c.call(method, params, 30*time.Second)
+	const maxRetries = 3
+
+	for attempt := range maxRetries {
+		result, err := c.call(method, params, 30*time.Second)
+		if err == nil {
+			return result, nil
+		}
+
+		var vmErr *VMServiceError
+		if errors.As(err, &vmErr) && vmErr.IsTransient() && attempt < maxRetries-1 {
+			log.Debug().Int("code", vmErr.Code).Str("method", method).Int("attempt", attempt+1).Msg("Transient VM Service error, retrying")
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			continue
+		}
+
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("unreachable")
 }
 
 // EnsureSemantics forces semantics tree generation (needed on Android where
